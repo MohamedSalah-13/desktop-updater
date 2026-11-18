@@ -21,12 +21,15 @@ import java.util.Optional;
  *   "size": 34853376,
  *   "title": "Program 2.5.0",
  *   "notes": "What changed.",
- *   "page": "https://example.com/releases/2.5.0"
+ *   "page": "https://example.com/releases/2.5.0",
+ *   "minimum": "2.4.0"
  * }
  * }</pre>
  *
  * <p>{@code version}, {@code url} and {@code sha256} are required: the file may sit on any server, so its
- * fingerprint is what ties it to this manifest. A 204 or 404 answer means nothing is published.
+ * fingerprint is what ties it to this manifest. {@code minimum} is the oldest version that may go on
+ * running; a copy older than it is required to install the release. A 204 or 404 answer means nothing is
+ * published.
  */
 public final class ManifestUrl implements ReleaseSource {
 
@@ -75,8 +78,11 @@ public final class ManifestUrl implements ReleaseSource {
         String name = path.substring(path.lastIndexOf('/') + 1);
         Release.Installer installer =
                 new Release.Installer(name, url, Json.number(manifest, "size", -1), Optional.of(sha256));
+        // A minimum above the release itself could never be met; it is read as none.
+        Optional<Version> minimum = Version.parse(Json.text(manifest, "minimum"))
+                .filter(oldest -> oldest.compareTo(version) <= 0);
         return Optional.of(new Release(version, Json.text(manifest, "title"), Json.text(manifest, "notes"),
-                address(Json.text(manifest, "page")), installer, version.isPreRelease()));
+                address(Json.text(manifest, "page")), installer, version.isPreRelease(), minimum));
     }
 
     private static Optional<URI> address(String text) {

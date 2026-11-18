@@ -61,7 +61,7 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.1.1</version>
+    <version>v0.2.0</version>
 </dependency>
 ```
 
@@ -178,6 +178,26 @@ What the script cannot decide for the user:
   `docs/release-notes/v<version>.md`; without that file GitHub's list of commits is used.
 - A program that follows pre-releases (`.includePreReleases(true)`) publishes with `-PreRelease`; any
   other program's pre-releases are skipped by its updater.
+
+## Required updates
+
+A release that breaks compatibility - a new wire protocol, a database older copies cannot open, a security
+fix - can be marked required. Ask the user whether the program has such releases; most do not need more
+than knowing the switch exists.
+
+- **Marking one:** `.\packaging\release.ps1 -Required`, or the line `<!-- update: required -->` in the
+  release's description (an HTML comment; GitHub's page does not show it). Every copy older than that
+  release then gets a "Required update" window with no "Skip this version", again at every look, even if
+  the person had skipped it. It stays required after later releases replace it as the newest.
+- **"Later" stays by default.** Whether an old copy may keep working is the program's call, not the
+  library's: a client that cannot talk to a newer server is useless, a backup tool one version behind is
+  fine. For a program that must not run old, add `.enforceRequired(true)` on the `UpdatePrompt`: the choice
+  becomes "Update now" or "Close the program". Do not turn it on without the user saying so - it can lock
+  people out, and a wrong `-Required` on a release then stops every customer.
+- **A program that learns it is out of date** - a server refused its version - calls
+  `updates.checkQuietly()` at that moment, so the offer appears then instead of at the next six-hour look.
+- **Two programs that must match** (client and server): marking a release required does not order the
+  updates. Say in the release notes which side updates first; the offer shows them.
 
 ## Variants
 

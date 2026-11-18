@@ -5,6 +5,9 @@ import com.hamza.updater.internal.Json;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -16,6 +19,9 @@ import java.util.regex.Pattern;
  * <p>A release counts when it is published (not a draft), its tag is a version ({@code v2.4.0}), and it has
  * an asset whose name matches {@link #asset}. The newest by version wins, not the newest by date. GitHub
  * gives every asset's SHA-256, so the download is checked against it.
+ *
+ * <p>A release whose description holds {@code <!-- update: required -->} is one no older copy may skip
+ * ({@link Release#minimum}).
  *
  * <p>GitHub answers sixty of these an hour to one address, which a program asking a few times a day stays
  * far below.
@@ -85,6 +91,7 @@ public final class GitHubReleases implements ReleaseSource {
         }
         Pattern installerName = glob(assetGlob);
         Release newest = null;
+        List<Version> required = new ArrayList<>();
         for (Object entry : Json.array(parsed)) {
             Map<String, Object> release = Json.object(entry);
             Optional<Version> version = Version.parse(Json.text(release, "tag_name"));
@@ -92,14 +99,28 @@ public final class GitHubReleases implements ReleaseSource {
             if (version.isEmpty() || Json.flag(release, "draft") || (preRelease && !preReleases)) {
                 continue;
             }
+            String body = Json.text(release, "body");
+            if (Release.REQUIRED_MARK.matcher(body).find()) {
+                required.add(version.get());
+            }
             Optional<Release.Installer> installer = installer(release, installerName);
             if (installer.isEmpty() || (newest != null && !version.get().isNewerThan(newest.version()))) {
                 continue;
             }
-            newest = new Release(version.get(), Json.text(release, "name"), Json.text(release, "body"),
+            newest = new Release(version.get(), Json.text(release, "name"), body,
                     page(Json.text(release, "html_url")), installer.get(), preRelease);
         }
-        return Optional.ofNullable(newest);
+        if (newest == null) {
+            return Optional.empty();
+        }
+        // A required release stays required once a later one replaces it as the newest: whoever is older
+        // than it still has to update. One that is newer than what is offered cannot be asked for yet.
+        Version offered = newest.version();
+        Optional<Version> minimum = required.stream()
+                .filter(version -> version.compareTo(offered) <= 0)
+                .max(Comparator.naturalOrder());
+        return Optional.of(new Release(newest.version(), newest.title(), newest.notes(), newest.page(),
+                newest.installer(), newest.preRelease(), minimum));
     }
 
     private static Optional<Release.Installer> installer(Map<String, Object> release, Pattern installerName) {

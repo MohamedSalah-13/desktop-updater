@@ -96,6 +96,70 @@ class GitHubReleasesTest {
         assertTrue(answering(elsewhere).latest().isEmpty());
     }
 
+    private static String required(String release, String tag) {
+        return release.replace("Notes of " + tag, "Notes of " + tag + ".\\n\\n<!-- Update: REQUIRED -->\\n");
+    }
+
+    @Test
+    void aReleaseMarkedRequiredSetsTheMinimumAndTheMarkIsNotShown() throws IOException {
+        Release latest = answering(required(release("v2.7.0", false, false, "App-2.7.0-setup.exe"), "v2.7.0"),
+                release("v2.6.0", false, false, "App-2.6.0-setup.exe")).latest().orElseThrow();
+        assertEquals(Optional.of(Version.of("2.7.0")), latest.minimum());
+        assertEquals("Notes of v2.7.0.", latest.notes());
+        assertTrue(latest.isRequiredFor(Version.of("2.6.0")));
+        assertFalse(latest.isRequiredFor(Version.of("2.7.0")));
+    }
+
+    @Test
+    void aRequiredReleaseStaysRequiredAfterALaterOneReplacesIt() throws IOException {
+        Release latest = answering(
+                release("v2.8.0", false, false, "App-2.8.0-setup.exe"),
+                required(release("v2.7.0", false, false, "App-2.7.0-setup.exe"), "v2.7.0"),
+                required(release("v2.5.0", false, false, "App-2.5.0-setup.exe"), "v2.5.0"),
+                release("v2.4.0", false, false, "App-2.4.0-setup.exe")).latest().orElseThrow();
+        assertEquals(Version.of("2.8.0"), latest.version());
+        assertEquals(Optional.of(Version.of("2.7.0")), latest.minimum());
+        assertTrue(latest.isRequiredFor(Version.of("2.6.0")), "older than the required release");
+        assertFalse(latest.isRequiredFor(Version.of("2.7.0")), "already has the required release");
+    }
+
+    @Test
+    void aRequiredReleaseThatIsNotOfferedAsksNothingOfAnyone() throws IOException {
+        GitHubReleases source = answering(
+                required(release("v3.0.0", false, true, "App-3.0.0-setup.exe"), "v3.0.0"),
+                required(release("v2.9.0", true, false, "App-2.9.0-setup.exe"), "v2.9.0"),
+                release("v2.8.0", false, false, "App-2.8.0-setup.exe"));
+        assertEquals(Optional.empty(), source.latest().orElseThrow().minimum());
+        assertEquals(Optional.of(Version.of("3.0.0")), source.includePreReleases(true).latest().orElseThrow().minimum());
+    }
+
+    @Test
+    void noMarkMeansNothingIsRequired() throws IOException {
+        Release latest = answering(release("v2.7.0", false, false, "App-2.7.0-setup.exe")).latest().orElseThrow();
+        assertEquals(Optional.empty(), latest.minimum());
+        assertFalse(latest.isRequiredFor(Version.of("1.0.0")));
+    }
+
+    @Test
+    void aManifestSaysItsMinimum() throws IOException {
+        String manifest = """
+                {"version": "2.7.0", "url": "https://example.com/app/App-2.7.0-setup.exe", "sha256": "%s",
+                 "minimum": "%s", "notes": "Fixes. <!-- internal note -->"}""";
+        Release release = ReleaseSource.manifest("https://example.com/latest.json")
+                .fetchingWith((uri, headers) -> new Http.Text(200, manifest.formatted(SHA, "2.6.0"))).latest().orElseThrow();
+        assertEquals(Optional.of(Version.of("2.6.0")), release.minimum());
+        assertEquals("Fixes.", release.notes());
+        assertTrue(release.isRequiredFor(Version.of("2.5.9")));
+        assertFalse(release.isRequiredFor(Version.of("2.6.0")));
+
+        Release impossible = ReleaseSource.manifest("https://example.com/latest.json")
+                .fetchingWith((uri, headers) -> new Http.Text(200, manifest.formatted(SHA, "9.0.0"))).latest().orElseThrow();
+        assertEquals(Optional.empty(), impossible.minimum(), "a minimum above the release could never be met");
+        Release garbled = ReleaseSource.manifest("https://example.com/latest.json")
+                .fetchingWith((uri, headers) -> new Http.Text(200, manifest.formatted(SHA, "soon"))).latest().orElseThrow();
+        assertEquals(Optional.empty(), garbled.minimum());
+    }
+
     @Test
     void nothingPublishedIsEmpty() throws IOException {
         assertTrue(answering().latest().isEmpty());

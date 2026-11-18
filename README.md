@@ -25,7 +25,7 @@
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.1.1</version>
+    <version>v0.2.0</version>
 </dependency>
 ```
 
@@ -57,6 +57,26 @@ checkButton.setOnAction(e -> updates.checkNow());   // زر «تحقق من ال
 
 وصف الإصدار على GitHub هو ما يراه العميل تحت «ما الجديد».
 
+## التحديث المطلوب (الإجباري)
+
+إصدار يكسر التوافق (بروتوكول جديد، قاعدة بيانات جديدة، ثغرة أمنية) يُعلَّم «مطلوبًا» بسطر واحد في وصفه على
+GitHub، وهو تعليق HTML لا يظهر في الصفحة:
+
+```html
+<!-- update: required -->
+```
+
+أو من سكربت الإصدار: `.\packaging\release.ps1 -Required`.
+
+- كل نسخة **أقدم** من هذا الإصدار تُعرض عليها نافذة «تحديث مطلوب» بلا زر «تخطي هذا الإصدار»، وتعود عند كل
+  فحص حتى لو سبق أن تخطّاه المستخدم.
+- يبقى الإصدار مطلوبًا بعد نشر إصدارات أحدث منه: من لديه 2.6 والمطلوب 2.7 والأحدث 2.9 يُطلب منه التحديث،
+  ومن لديه 2.7 أو أحدث يراه تحديثًا عاديًا.
+- افتراضيًا يبقى زر «لاحقًا». إن كان البرنامج لا يصح أن يعمل بنسخة قديمة، أضف `enforceRequired(true)`:
+  يصبح الخيار «تحديث الآن» أو «إغلاق البرنامج». هذا قرار البرنامج لا المكتبة، لأنه وحده يعرف هل النسخة
+  القديمة ما زالت صالحة للعمل. وإن تعذّر الفحص (لا اتصال) يعمل البرنامج كالمعتاد.
+- في ملف الـ manifest: الحقل `"minimum": "2.7.0"` يعني أن كل نسخة أقدم من 2.7.0 مطلوب منها التحديث.
+
 ## سكربت الإصدار
 
 النشر اليدوي يخطئ بصمت: اسم ملف لا يطابق، أو إصدار Draft، أو رقم ليس أحدث، فلا يظهر التحديث ولا تظهر أي
@@ -76,6 +96,7 @@ checkButton.setOnAction(e -> updates.checkNow());   // زر «تحقق من ال
 .\packaging\release.ps1 -DryRun       # كل شيء عدا النشر
 .\packaging\release.ps1               # الوسم v<version> يجب أن يكون موجودًا وعند HEAD
 .\packaging\release.ps1 -CreateTag    # ينشئ الوسم عند HEAD أولًا
+.\packaging\release.ps1 -Required     # إصدار مطلوب: لا «تخطي» لمن لديه نسخة أقدم
 .\packaging\release.ps1 -VerifyOnly   # أي إصدار يُعرض الآن على النسخ المثبّتة، ولماذا
 ```
 
@@ -92,6 +113,8 @@ GitHub. يحتاج `git` و `gh`، ويعمل على Windows PowerShell 5.1.
 | برنامج له أيقونة Tray أو طريقة إغلاق خاصة | `UpdatePrompt.onExit(() -> ...)` |
 | تغيير اللغة أثناء التشغيل | `updates.language("en")` |
 | تغيير فترة الفحص | `updates.checkEvery(Duration.ofHours(12))` |
+| منع العمل بنسخة قديمة عند تحديث مطلوب | `updates.enforceRequired(true)` |
+| فحص فوري صامت (مثلًا عند رفض الخادم للإصدار) | `updates.checkQuietly()` |
 | بدون نافذة JavaFX | `updater.check()` ثم `download(...)` ثم `install(...)` من خيط خلفي |
 
 ملف الـ manifest:

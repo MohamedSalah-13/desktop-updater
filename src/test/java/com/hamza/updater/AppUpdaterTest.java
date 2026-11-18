@@ -40,6 +40,18 @@ class AppUpdaterTest {
     }
 
     @Test
+    void aReleaseIsRequiredOnlyForCopiesOlderThanItsMinimum() {
+        Release marked = new Release(Version.of("2.8.0"), "App 2.8.0", "notes", Optional.empty(),
+                release("2.8.0").installer(), false, Optional.of(Version.of("2.7.0")));
+        CheckResult older = updater("2.6.0", () -> Optional.of(marked)).check();
+        assertTrue(assertInstanceOf(CheckResult.Available.class, older).required());
+        CheckResult atMinimum = updater("2.7.0", () -> Optional.of(marked)).check();
+        assertFalse(assertInstanceOf(CheckResult.Available.class, atMinimum).required());
+        CheckResult unmarked = updater("2.6.0", () -> Optional.of(release("2.8.0"))).check();
+        assertFalse(assertInstanceOf(CheckResult.Available.class, unmarked).required());
+    }
+
+    @Test
     void theSameOrAnOlderReleaseIsUpToDate() {
         assertInstanceOf(CheckResult.UpToDate.class, updater("2.5.0", () -> Optional.of(release("2.5.0"))).check());
         assertInstanceOf(CheckResult.UpToDate.class, updater("2.6.0", () -> Optional.of(release("2.5.0"))).check());

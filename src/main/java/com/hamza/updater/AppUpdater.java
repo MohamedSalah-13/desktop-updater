@@ -74,7 +74,8 @@ public final class AppUpdater {
         try {
             Optional<Release> latest = source.latest();
             if (latest.isPresent() && latest.get().version().isNewerThan(current.get())) {
-                return new CheckResult.Available(latest.get(), current.get());
+                return new CheckResult.Available(latest.get(), current.get(),
+                        latest.get().isRequiredFor(current.get()));
             }
             download.clear(folder);
             return new CheckResult.UpToDate(current.get());

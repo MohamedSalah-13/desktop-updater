@@ -25,6 +25,7 @@ import java.io.InterruptedIOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -59,6 +60,7 @@ public final class UpdatePrompt {
     private Texts texts = Texts.of(Locale.getDefault().getLanguage());
     private Duration interval = Duration.ofHours(6);
     private Runnable exit = UpdatePrompt::closeProgram;
+    private boolean enforce;
 
     private ScheduledExecutorService background;
     private boolean showing;
@@ -104,6 +106,17 @@ public final class UpdatePrompt {
         return this;
     }
 
+    /**
+     * Makes a required update the only way on. A release the publisher marked required is never skippable;
+     * with this, "Later" goes too: the choice is to update or to close the program. For a program an old
+     * copy of which must not keep working - only the program knows whether that is so, which is why it is
+     * not the default. A look that gets no answer (no connection) still lets the program run.
+     */
+    public UpdatePrompt enforceRequired(boolean enforce) {
+        this.enforce = enforce;
+        return this;
+    }
+
     /** Starts looking: once shortly after now, then at every interval, until {@link #stop}. */
     public UpdatePrompt start() {
         background().scheduleWithFixedDelay(this::lookQuietly, FIRST_LOOK.toMillis(), interval.toMillis(),
@@ -124,6 +137,14 @@ public final class UpdatePrompt {
                 answer(result);
             });
         });
+    }
+
+    /**
+     * Looks now, the way the program does on its own: it says nothing unless there is a release to offer.
+     * For the moment a program learns it may be out of date - a server that refused its version, say.
+     */
+    public void checkQuietly() {
+        background().execute(this::lookQuietly);
     }
 
     public void stop() {
@@ -147,7 +168,7 @@ public final class UpdatePrompt {
     private void lookQuietly() {
         try {
             if (updater.check() instanceof CheckResult.Available available
-                    && !updater.isSkipped(available.release().version())) {
+                    && (available.required() || !updater.isSkipped(available.release().version()))) {
                 Platform.runLater(() -> announce(available));
             }
         } catch (RuntimeException unexpected) {
@@ -155,9 +176,12 @@ public final class UpdatePrompt {
         }
     }
 
-    /** A release the program found on its own: once a run, and only on a window that is shown. */
+    /**
+     * A release the program found on its own, on a window that is shown: once a run when it may be put
+     * off, at every look when it is required.
+     */
     private void announce(CheckResult.Available available) {
-        if (showing || available.release().version().equals(declined)) {
+        if (showing || (!available.required() && available.release().version().equals(declined))) {
             return;
         }
         if (owner != null && !owner.isShowing()) {
@@ -191,14 +215,22 @@ public final class UpdatePrompt {
         Release release = available.release();
         boolean installs = updater.canInstall();
         Optional<URI> page = release.page();
+        boolean required = available.required();
+        boolean onlyWayOn = required && enforce;
         ButtonType update = new ButtonType(installs ? texts.updateNow() : texts.openPage(), ButtonBar.ButtonData.OK_DONE);
-        ButtonType later = new ButtonType(texts.later(), ButtonBar.ButtonData.CANCEL_CLOSE);
+        ButtonType later = new ButtonType(onlyWayOn ? texts.closeProgram() : texts.later(),
+                ButtonBar.ButtonData.CANCEL_CLOSE);
         ButtonType skip = new ButtonType(texts.skip(), ButtonBar.ButtonData.LEFT);
 
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        Alert alert = new Alert(required ? Alert.AlertType.WARNING : Alert.AlertType.INFORMATION);
         alert.setTitle(texts.title());
-        alert.setHeaderText(texts.available().formatted(release.version(), updater.appName()));
-        VBox content = new VBox(8, wrapped(texts.current().formatted(available.current())));
+        alert.setHeaderText((required ? texts.requiredHeader() : texts.available())
+                .formatted(release.version(), updater.appName()));
+        VBox content = new VBox(8);
+        if (required) {
+            content.getChildren().add(wrapped(texts.requiredText()));
+        }
+        content.getChildren().add(wrapped(texts.current().formatted(available.current())));
         if (!release.notes().isBlank()) {
             TextArea notes = new TextArea(release.notes().strip());
             notes.setEditable(false);
@@ -211,11 +243,16 @@ public final class UpdatePrompt {
             content.getChildren().add(wrapped(texts.willRestart()));
         }
         alert.getDialogPane().setContent(content);
+        // A required release cannot be skipped: the publisher said older copies must not stay.
+        List<ButtonType> buttons = new ArrayList<>();
         if (installs || page.isPresent()) {
-            alert.getButtonTypes().setAll(update, later, skip);
-        } else {
-            alert.getButtonTypes().setAll(later, skip);
+            buttons.add(update);
         }
+        buttons.add(later);
+        if (!required) {
+            buttons.add(skip);
+        }
+        alert.getButtonTypes().setAll(buttons);
         dress(alert);
 
         showing = true;
@@ -228,10 +265,15 @@ public final class UpdatePrompt {
                 message(Alert.AlertType.WARNING, texts.closeOthers(), String.join("\n", others));
                 offer(available);
             } else if (installs) {
-                download(release);
+                download(available);
             } else {
                 page.ifPresent(UpdatePrompt::open);
+                if (onlyWayOn) {
+                    close();
+                }
             }
+        } else if (onlyWayOn) {
+            close();
         } else if (chosen.isPresent() && chosen.get() == skip) {
             updater.skip(release.version());
         } else {
@@ -239,7 +281,18 @@ public final class UpdatePrompt {
         }
     }
 
-    private void download(Release release) {
+    /** Whether nothing but the update lets the program go on: the release is required and the program insists. */
+    private boolean onlyWayOn(CheckResult.Available available) {
+        return available.required() && enforce;
+    }
+
+    private void close() {
+        stop();
+        exit.run();
+    }
+
+    private void download(CheckResult.Available available) {
+        Release release = available.release();
         ButtonType cancel = new ButtonType(texts.cancel(), ButtonBar.ButtonData.CANCEL_CLOSE);
         ProgressBar bar = new ProgressBar(ProgressBar.INDETERMINATE_PROGRESS);
         bar.setPrefWidth(380);
@@ -259,9 +312,13 @@ public final class UpdatePrompt {
                     status.setText(total > 0 ? texts.megabytes().formatted(megabytes(done), megabytes(total)) : " ");
                 }));
             } catch (InterruptedIOException cancelled) {
+                // Cancelling does not get a person past an update that is the only way on.
+                if (onlyWayOn(available)) {
+                    Platform.runLater(() -> offer(available));
+                }
                 return;
             } catch (IOException | RuntimeException failure) {
-                Platform.runLater(() -> failed(dialog, release, texts.downloadFailed(), failure));
+                Platform.runLater(() -> failed(dialog, available, texts.downloadFailed(), failure));
                 return;
             }
             Platform.runLater(() -> {
@@ -272,13 +329,10 @@ public final class UpdatePrompt {
             try {
                 updater.install(installer);
             } catch (IOException | RuntimeException failure) {
-                Platform.runLater(() -> failed(dialog, release, texts.installFailed(), failure));
+                Platform.runLater(() -> failed(dialog, available, texts.installFailed(), failure));
                 return;
             }
-            Platform.runLater(() -> {
-                stop();
-                exit.run();
-            });
+            Platform.runLater(this::close);
         }, "update-download");
         worker.setDaemon(true);
 
@@ -290,7 +344,8 @@ public final class UpdatePrompt {
         worker.start();
     }
 
-    private void failed(Dialog<?> progress, Release release, String what, Exception failure) {
+    private void failed(Dialog<?> progress, CheckResult.Available available, String what, Exception failure) {
+        Release release = available.release();
         progress.setOnCloseRequest(null);
         progress.close();
         ButtonType open = new ButtonType(texts.openPage(), ButtonBar.ButtonData.OK_DONE);
@@ -306,6 +361,9 @@ public final class UpdatePrompt {
         showing = false;
         if (chosen.isPresent() && chosen.get() == open) {
             release.page().ifPresent(UpdatePrompt::open);
+        }
+        if (onlyWayOn(available)) {
+            offer(available);
         }
     }
 

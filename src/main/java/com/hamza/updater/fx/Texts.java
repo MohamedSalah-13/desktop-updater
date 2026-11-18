@@ -7,7 +7,7 @@ record Texts(boolean rightToLeft, String title, String available, String current
              String updateNow, String later, String skip, String openPage, String downloading,
              String megabytes, String starting, String willRestart, String cancel, String upToDate,
              String notInstalled, String checkFailed, String downloadFailed, String installFailed,
-             String closeOthers) {
+             String closeOthers, String requiredHeader, String requiredText, String closeProgram) {
 
     static final Texts ENGLISH = new Texts(false,
             "Software update",
@@ -28,7 +28,10 @@ record Texts(boolean rightToLeft, String title, String available, String current
             "Could not check for updates. Check the internet connection and try again.",
             "The update could not be downloaded.",
             "The installer could not be started.",
-            "Close these programs first, then press “Update now” again:");
+            "Close these programs first, then press “Update now” again:",
+            "Required update: version %s of %s",
+            "This update is required. The version you have is no longer supported.",
+            "Close the program");
 
     static final Texts ARABIC = new Texts(true,
             "تحديث البرنامج",
@@ -50,7 +53,10 @@ record Texts(boolean rightToLeft, String title, String available, String current
             "تعذّر التحقق من وجود تحديثات. تحقق من اتصال الإنترنت وحاول مرة أخرى.",
             "تعذّر تنزيل التحديث.",
             "تعذّر بدء التثبيت.",
-            "أغلق هذه البرامج أولًا ثم اضغط «تحديث الآن» من جديد:");
+            "أغلق هذه البرامج أولًا ثم اضغط «تحديث الآن» من جديد:",
+            "تحديث مطلوب: الإصدار %s من %s",
+            "هذا التحديث مطلوب. الإصدار الذي لديك لم يعد مدعومًا.",
+            "إغلاق البرنامج");
 
     /** Arabic for {@code ar}, English for everything else. */
     static Texts of(String language) {

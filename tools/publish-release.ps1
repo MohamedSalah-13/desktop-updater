@@ -37,6 +37,11 @@
     What customers read as "What's new". Without it, docs\release-notes\v<version>.md is used when
     it exists, and otherwise GitHub's generated list of commits.
 
+.PARAMETER Required
+    Marks the release required: every older copy must install it and is given no "Skip this version".
+    It does so by ending the release's description with <!-- update: required -->, which GitHub's page
+    does not show. A notes file that already holds that line makes the release required without this.
+
 .PARAMETER PreRelease
     Publishes a pre-release. Say it only for a program whose updater includes pre-releases.
 
@@ -70,6 +75,7 @@ param(
     [string]$StagingDir,
     [string]$NotesFile,
     [string]$Repository,
+    [switch]$Required,
     [switch]$PreRelease,
     [switch]$CreateTag,
     [switch]$SkipBuild,
@@ -105,6 +111,10 @@ function Invoke-Checked {
     return $result.Output
 }
 
+# What a release's description holds to make it required; the same line the library looks for.
+$script:RequiredMark = '<!--\s*update\s*:\s*required\s*-->'
+$script:RequiredLine = '<!-- update: required -->'
+
 # 'v2.5.0' -> 2.5.0; a tag that is not a version -> $null. A '-beta.1' suffix marks a pre-release.
 function ConvertTo-ReleaseVersion([string]$Tag) {
     if ($Tag -notmatch '^[vV]?(\d+(?:\.\d+){0,3})(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$') { return $null }
@@ -122,6 +132,7 @@ function Get-OfferedRelease {
     $releases = @($parsedJson | ForEach-Object { $_ })
     $offered = $null
     $passedOver = @()
+    $marked = @()
     foreach ($release in $releases) {
         $parsed = ConvertTo-ReleaseVersion $release.tag_name
         $asset = @($release.assets | Where-Object { $_.name -like $Glob -and $_.state -eq 'uploaded' }) | Select-Object -First 1
@@ -129,7 +140,9 @@ function Get-OfferedRelease {
         if (-not $parsed) { $reason = 'its tag is not a version' }
         elseif ($release.draft) { $reason = 'it is a draft' }
         elseif (($release.prerelease -or $parsed.Suffix) -and -not $WithPreReleases) { $reason = 'it is a pre-release' }
-        elseif (-not $asset) { $reason = "it has no file matching $Glob" }
+        # As the program counts it: the mark of a release without an installer still counts.
+        elseif ("$($release.body)" -match $script:RequiredMark) { $marked += [pscustomobject]@{ Tag = $release.tag_name; Number = $parsed.Number } }
+        if (-not $reason -and -not $asset) { $reason = "it has no file matching $Glob" }
         if ($reason) {
             $passedOver += [pscustomobject]@{ Tag = $release.tag_name; Reason = $reason }
             continue
@@ -142,7 +155,12 @@ function Get-OfferedRelease {
             }
         }
     }
-    return [pscustomobject]@{ Offered = $offered; PassedOver = $passedOver; All = $releases }
+    # A required release stays required after a later one replaces it; one newer than what is offered asks nothing yet.
+    $minimum = $null
+    if ($offered) {
+        $minimum = $marked | Where-Object { $_.Number -le $offered.Number } | Sort-Object Number -Descending | Select-Object -First 1
+    }
+    return [pscustomobject]@{ Offered = $offered; PassedOver = $passedOver; Minimum = $minimum; All = $releases }
 }
 
 function Show-OfferedRelease($Found) {
@@ -153,6 +171,11 @@ function Show-OfferedRelease($Found) {
     }
     $o = $Found.Offered
     Write-Ok ("An installed copy older than {0} is offered {1} ({2}, {3:N1} MB)" -f $o.Number, $o.Tag, $o.Asset, ($o.Size / 1MB))
+    if ($Found.Minimum) {
+        Write-Note "Required: a copy older than $($Found.Minimum.Number) must update and cannot skip it ($($Found.Minimum.Tag) is marked required)."
+    } else {
+        Write-Ok 'Nothing is required: every copy may skip or postpone it'
+    }
     if (-not $o.Digest) { Write-Note 'GitHub gave no SHA-256 for the file; the program then checks its size only.' }
     if ([string]::IsNullOrWhiteSpace($o.Notes)) { Write-Note 'The release has no description; the "What''s new" box will be empty.' }
 }
@@ -233,11 +256,19 @@ try {
     } elseif (-not [System.IO.Path]::IsPathRooted($NotesFile)) {
         $NotesFile = Join-Path $ProjectDir $NotesFile
     }
+    $notesText = ''
     if ($NotesFile) {
         if (-not (Test-Path -LiteralPath $NotesFile)) { throw "The notes file $NotesFile is not there." }
+        $notesText = "$(Get-Content -LiteralPath $NotesFile -Raw -Encoding UTF8)"
         Write-Ok "What's new: $NotesFile"
     } else {
         Write-Note "No notes file (docs\release-notes\$tag.md): customers will read GitHub's list of commits as ""What's new""."
+    }
+    $isRequired = $Required.IsPresent -or ($notesText -match $script:RequiredMark)
+    if ($isRequired) {
+        Write-Note "This release is REQUIRED: every copy older than $version must install it and gets no ""Skip this version""."
+    } else {
+        Write-Ok 'Not a required release: copies may skip or postpone it (-Required changes that)'
     }
 
     # ------------------------------------------------------------------------------------- 2. build
@@ -286,6 +317,7 @@ try {
         Write-Step 'Dry run: nothing was published'
         if ($tagToCreate) { Write-Host "   would create and push tag $tag" }
         Write-Host "   would create release '$title' on $Repository with $asset"
+        if ($isRequired) { Write-Host "   would mark it required for every copy older than $version" }
         return
     }
 
@@ -297,7 +329,19 @@ try {
         Write-Ok "Tag $tag created and pushed"
     }
     $create = @('release', 'create', $tag, $staged, '-R', $Repository, '--title', $title, '--verify-tag')
-    if ($NotesFile) { $create += @('--notes-file', $NotesFile) } else { $create += '--generate-notes' }
+    if ($isRequired -and $notesText -notmatch $script:RequiredMark) {
+        # The mark goes at the end of the description. Written without a byte-order mark, which would
+        # otherwise open the release's text.
+        $marked = Join-Path $StagingDir "$tag-notes.md"
+        $text = ($notesText.TrimEnd() + "`n`n" + $script:RequiredLine + "`n").TrimStart()
+        [System.IO.File]::WriteAllText($marked, $text, (New-Object System.Text.UTF8Encoding($false)))
+        $create += @('--notes-file', $marked)
+        if (-not $NotesFile) { $create += '--generate-notes' }
+    } elseif ($NotesFile) {
+        $create += @('--notes-file', $NotesFile)
+    } else {
+        $create += '--generate-notes'
+    }
     if ($PreRelease) { $create += '--prerelease' }
     $url = Invoke-Checked -Exe 'gh' -Arguments $create -What "Creating the release (is tag $tag pushed?)"
     Write-Ok "Published: $($url | Select-Object -Last 1)"
@@ -313,6 +357,7 @@ try {
         if ($after.Offered.Asset -ne $asset) { $problems += "the file is called $($after.Offered.Asset), not $asset" }
         if ($after.Offered.Size -ne $installer.Length) { $problems += "GitHub holds $($after.Offered.Size) bytes, the installer is $($installer.Length)" }
         if ($after.Offered.Digest -and $after.Offered.Digest -ne "sha256:$sha256") { $problems += 'GitHub''s SHA-256 is not the installer''s' }
+        if ($isRequired -and (-not $after.Minimum -or $after.Minimum.Tag -ne $tag)) { $problems += 'it was to be required, and the program does not read it so' }
     }
     if ($problems.Count -gt 0) { throw "The release is published but not right: $($problems -join '; ')." }
     Write-Ok "Release $tag is what installed copies will be offered"
