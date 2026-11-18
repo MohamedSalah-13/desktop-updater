@@ -222,7 +222,12 @@ public final class UpdatePrompt {
         Optional<ButtonType> chosen = alert.showAndWait();
         showing = false;
         if (chosen.isPresent() && chosen.get() == update) {
-            if (installs) {
+            List<String> others = installs ? updater.runningAlongside() : List.of();
+            if (!others.isEmpty()) {
+                // The installer could not replace files these still hold; the offer comes back once told.
+                message(Alert.AlertType.WARNING, texts.closeOthers(), String.join("\n", others));
+                offer(available);
+            } else if (installs) {
                 download(release);
             } else {
                 page.ifPresent(UpdatePrompt::open);

@@ -63,6 +63,24 @@ class InstallerLaunchTest {
     }
 
     @Test
+    void aProgramFromTheSameInstalledFolderStandsInTheWay() {
+        Path folder = Path.of("apps", "File Transfer").toAbsolutePath();
+        assertTrue(InstallerLaunch.inside(folder, folder.resolve("File Transfer Server.exe").toString()));
+        assertTrue(InstallerLaunch.inside(folder, folder.resolve("runtime").resolve("bin").resolve("keytool.exe").toString()));
+        assertTrue(InstallerLaunch.inside(folder, folder.toString().toUpperCase() + java.io.File.separator + "a.exe"));
+        assertFalse(InstallerLaunch.inside(folder, Path.of("apps", "File Transfer Tools", "a.exe").toAbsolutePath().toString()));
+        assertFalse(InstallerLaunch.inside(folder, Path.of("apps", "Other", "a.exe").toAbsolutePath().toString()));
+        assertFalse(InstallerLaunch.inside(folder, ""));
+        assertEquals("File Transfer Server", InstallerLaunch.programName("C:\\Apps\\File Transfer\\File Transfer Server.exe"));
+        assertEquals("keytool", InstallerLaunch.programName("C:/Apps/runtime/bin/keytool.EXE"));
+    }
+
+    @Test
+    void aCopyNoLauncherStartedHasNothingBesideIt() {
+        assertTrue(InstallerLaunch.runningAlongside().isEmpty());
+    }
+
+    @Test
     void thisProcessIsAlwaysWaitedFor() {
         assertTrue(InstallerLaunch.processesToWaitFor().contains(ProcessHandle.current().pid()));
     }

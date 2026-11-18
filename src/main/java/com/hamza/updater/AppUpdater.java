@@ -5,9 +5,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.function.Supplier;
 
 /**
  * A program's updates: is there a newer release, download its installer, run it.
@@ -36,8 +38,10 @@ public final class AppUpdater {
     private final Optional<Path> relaunch;
     private final Download download;
     private final InstallerLaunch launch;
+    private final Supplier<List<String>> alongside;
 
     private AppUpdater(Builder builder) {
+        this.alongside = builder.alongside;
         this.appName = builder.appName;
         this.current = builder.current;
         this.source = Objects.requireNonNull(builder.source, "source");
@@ -91,6 +95,15 @@ public final class AppUpdater {
     /** Whether this computer can run the installer itself; elsewhere the release's page is all there is. */
     public boolean canInstall() {
         return InstallerLaunch.isSupported();
+    }
+
+    /**
+     * The other programs running out of this program's installed folder - a second launcher of the same
+     * installation, or another window of this one. The installer cannot replace files they hold: ask the
+     * person to close them before {@link #install}. Empty when nothing stands in the way.
+     */
+    public List<String> runningAlongside() {
+        return alongside.get();
     }
 
     /**
@@ -156,6 +169,7 @@ public final class AppUpdater {
         private Optional<Path> relaunch = launcher();
         private Download download = new Download();
         private InstallerLaunch launch = new InstallerLaunch();
+        private Supplier<List<String>> alongside = InstallerLaunch::runningAlongside;
 
         private Builder(String appName) {
             if (appName == null || appName.isBlank()) {
@@ -209,6 +223,12 @@ public final class AppUpdater {
         /** Another way to start the installer, for a test. */
         public Builder launch(InstallerLaunch launch) {
             this.launch = Objects.requireNonNull(launch);
+            return this;
+        }
+
+        /** Another way to find the programs running beside this one, for a test. */
+        public Builder alongside(Supplier<List<String>> alongside) {
+            this.alongside = Objects.requireNonNull(alongside);
             return this;
         }
 

@@ -6,7 +6,8 @@ import java.util.Locale;
 record Texts(boolean rightToLeft, String title, String available, String current, String whatsNew,
              String updateNow, String later, String skip, String openPage, String downloading,
              String megabytes, String starting, String willRestart, String cancel, String upToDate,
-             String notInstalled, String checkFailed, String downloadFailed, String installFailed) {
+             String notInstalled, String checkFailed, String downloadFailed, String installFailed,
+             String closeOthers) {
 
     static final Texts ENGLISH = new Texts(false,
             "Software update",
@@ -26,7 +27,8 @@ record Texts(boolean rightToLeft, String title, String available, String current
             "This copy was not installed with the installer, so it does not update itself.",
             "Could not check for updates. Check the internet connection and try again.",
             "The update could not be downloaded.",
-            "The installer could not be started.");
+            "The installer could not be started.",
+            "Close these programs first, then press “Update now” again:");
 
     static final Texts ARABIC = new Texts(true,
             "تحديث البرنامج",
@@ -47,7 +49,8 @@ record Texts(boolean rightToLeft, String title, String available, String current
             "هذه النسخة لم تُثبَّت من ملف التثبيت، لذلك لا تحدّث نفسها.",
             "تعذّر التحقق من وجود تحديثات. تحقق من اتصال الإنترنت وحاول مرة أخرى.",
             "تعذّر تنزيل التحديث.",
-            "تعذّر بدء التثبيت.");
+            "تعذّر بدء التثبيت.",
+            "أغلق هذه البرامج أولًا ثم اضغط «تحديث الآن» من جديد:");
 
     /** Arabic for {@code ar}, English for everything else. */
     static Texts of(String language) {

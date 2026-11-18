@@ -61,7 +61,7 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.1.0</version>
+    <version>v0.1.1</version>
 </dependency>
 ```
 
@@ -105,6 +105,12 @@ process to end. So `onExit` must really end the process:
   seconds later whatever is still running.
 - A program with a tray icon, `Platform.setImplicitExit(false)`, or cleanup in `stop()`: pass whatever its
   own "Exit" menu item does, minus any "are you sure?" question - the person already chose to update.
+
+An installation with more than one launcher (a client and a server from one installer), or a program that
+allows several windows, needs nothing extra: when the person presses "Update now" the library lists the
+other programs still running from the same installed folder and asks to close them first, because the
+installer cannot replace files they hold. If one of them is a program the user cannot see (a service, a
+scheduled run), tell the user - that one has to be stopped by the program itself before `install`.
 
 ### 5. A "Check for updates" button
 

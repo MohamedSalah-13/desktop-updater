@@ -105,6 +105,57 @@ public final class InstallerLaunch {
         return processes;
     }
 
+    /**
+     * The other programs running out of this program's installed folder, by name - a second launcher of the
+     * same installation (a server beside its client), or another window of this one. The installer cannot
+     * replace files they hold, so the person closes them before an update is installed. Empty for a copy
+     * no {@code jpackage} launcher started.
+     */
+    static List<String> runningAlongside() {
+        String launcher = System.getProperty("jpackage.app-path");
+        if (launcher == null || launcher.isBlank()) {
+            return List.of();
+        }
+        Path folder;
+        try {
+            folder = Path.of(launcher).toAbsolutePath().normalize().getParent();
+        } catch (RuntimeException unreadable) {
+            return List.of();
+        }
+        if (folder == null) {
+            return List.of();
+        }
+        List<Long> own = processesToWaitFor();
+        return ProcessHandle.allProcesses()
+                .filter(process -> !own.contains(process.pid()))
+                .map(process -> process.info().command().orElse(""))
+                .filter(command -> inside(folder, command))
+                .map(InstallerLaunch::programName)
+                .distinct()
+                .sorted()
+                .toList();
+    }
+
+    /** Whether an executable lives in a folder or below it; Windows paths, so upper and lower case alike. */
+    static boolean inside(Path folder, String command) {
+        if (command == null || command.isBlank()) {
+            return false;
+        }
+        try {
+            String base = folder.toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
+            String path = Path.of(command).toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
+            return path.startsWith(base + java.io.File.separator);
+        } catch (RuntimeException unreadable) {
+            return false;
+        }
+    }
+
+    /** {@code C:\...\File Transfer Server.exe} as a person knows it: {@code File Transfer Server}. */
+    static String programName(String command) {
+        String name = command.substring(Math.max(command.lastIndexOf('/'), command.lastIndexOf('\\')) + 1);
+        return name.toLowerCase(Locale.ROOT).endsWith(".exe") ? name.substring(0, name.length() - 4) : name;
+    }
+
     private static boolean samePath(String one, String other) {
         try {
             return Path.of(one).toAbsolutePath().normalize().toString()
