@@ -18,7 +18,8 @@ param(
     [switch]$DryRun,
     [switch]$SkipBuild,
     [switch]$CreateTag,
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    [switch]$PreRelease
 )
 
 $project = Split-Path -Parent $PSScriptRoot
@@ -30,12 +31,16 @@ $release = @{
     AssetGlob   = '*-setup.exe'                        # the same text as that .asset("...") call
     BuildScript = 'packaging\package.ps1'              # makes the installer in target\installer
 }
-# A project whose pom.xml is not at the root adds, for example:
-#   $release.Pom = 'desktop\pom.xml'; $release.InstallerDir = 'desktop\target\installer'
+# Paths are relative to the folder above this script's folder, the one that holds pom.xml.
 # --------------------------------------------------------------------------------------------------
 
+# desktop-updater is looked for beside the repository, wherever in it this script sits.
 $updaterHome = $env:DESKTOP_UPDATER_HOME
-if (-not $updaterHome) { $updaterHome = Join-Path (Split-Path -Parent $project) 'desktop-updater' }
+if (-not $updaterHome) {
+    $repository = & git -C $project rev-parse --show-toplevel 2>$null
+    if (-not $repository) { $repository = $project }
+    $updaterHome = Join-Path (Split-Path -Parent $repository) 'desktop-updater'
+}
 $shared = Join-Path $updaterHome 'tools\publish-release.ps1'
 if (-not (Test-Path -LiteralPath $shared)) {
     throw "desktop-updater was not found at $updaterHome. Clone https://github.com/MohamedSalah-13/desktop-updater beside this project, or set DESKTOP_UPDATER_HOME."
