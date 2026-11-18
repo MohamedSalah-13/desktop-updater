@@ -145,14 +145,39 @@ Nothing to add for a classpath program: the jar is copied with the other librari
 
 ## Releasing so that programs see it
 
-The update is only as good as the release. For each release:
+The update is only as good as the release, and a release done by hand goes wrong quietly: a file name the
+glob does not match, a draft, a version that is not newer - nothing fails, the update just never shows. So
+give the project a release script as part of the integration:
 
-1. `pom.xml` version = the tag without `v`; build the installer from that commit.
-2. Create the GitHub release on tag `vX.Y.Z` and upload the installer under a name the `.asset(...)` glob
-   matches.
-3. It must not be a **draft**, and not marked **pre-release** - both are skipped (a program that should
-   follow pre-releases says `.includePreReleases(true)`).
-4. The release's description is shown to customers as "What's new", so write it for them.
+1. Copy `tools/release.example.ps1` from the library to the project as `packaging/release.ps1` and fill in
+   its four values: the release title, the installer's published name (it must match the `.asset(...)`
+   glob), the glob itself, and the project's packaging script. A project whose `pom.xml` is not at the root
+   also sets `Pom` and `InstallerDir`.
+2. The wrapper calls the library's `tools/publish-release.ps1`, found in a clone of desktop-updater beside
+   the project or under `DESKTOP_UPDATER_HOME`. That script checks the project (clean tree, version, tag
+   at HEAD, no such release yet, newer than the newest), runs the packaging script, publishes the
+   installer under its name, and then reads the release back the way the program does.
+3. Try it with `.\packaging\release.ps1 -DryRun`: it builds and names the installer and publishes nothing.
+
+Using it:
+
+```powershell
+.\packaging\release.ps1 -DryRun       # everything except publishing
+.\packaging\release.ps1               # the tag v<version> must exist and be at HEAD
+.\packaging\release.ps1 -CreateTag    # tags HEAD first
+.\packaging\release.ps1 -VerifyOnly   # which release is an installed copy offered right now, and why
+```
+
+Publishing is outward-facing and cannot be taken back: run the real thing only when the user asks for a
+release, and show them the dry run first. `-VerifyOnly` is the first thing to run when a customer says the
+update did not appear.
+
+What the script cannot decide for the user:
+
+- The release's description is shown to customers as "What's new". Write it for them in
+  `docs/release-notes/v<version>.md`; without that file GitHub's list of commits is used.
+- A program that follows pre-releases (`.includePreReleases(true)`) publishes with `-PreRelease`; any
+  other program's pre-releases are skipped by its updater.
 
 ## Variants
 
@@ -168,8 +193,10 @@ The update is only as good as the release. For each release:
 
 ## When it does not work
 
-- **Never offers an update:** is the copy installed (run from the IDE it has no version)? Is the release a
-  draft or pre-release? Does an asset match the glob? Is the tag a version (`v2.5.0`, not `release-2.5`)?
+- **Never offers an update:** run `.\packaging\release.ps1 -VerifyOnly` - it names the release an installed
+  copy is offered and why each other one is passed over (draft, pre-release, no file matching the glob, a
+  tag that is not a version). If that looks right, is the copy installed? Run from the IDE it has no
+  version.
 - **Downloads but does not install:** read `%LOCALAPPDATA%\<App name>-updates\update.log`. "still running"
   means `onExit` did not end the process (step 4).
 - **Installs beside the old version:** the `--win-upgrade-uuid` changed between the two installers.
