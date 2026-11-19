@@ -42,6 +42,16 @@
     It does so by ending the release's description with <!-- update: required -->, which GitHub's page
     does not show. A notes file that already holds that line makes the release required without this.
 
+.PARAMETER SigningKey
+    The publisher's key file (made by tools\signing-key.ps1 -New). With it the installer is signed and
+    the signature is published beside it as <installer>.sig. A program that carries the matching public
+    key (.signedBy("...")) is offered only releases signed this way, so for such a program every release
+    needs it. The DESKTOP_UPDATER_SIGNING_KEY environment variable is used when this is not given.
+
+.PARAMETER AppName
+    The program's name exactly as its code gives it to AppUpdater.builder("..."). It is part of what is
+    signed, so it is required with -SigningKey.
+
 .PARAMETER PreRelease
     Publishes a pre-release. Say it only for a program whose updater includes pre-releases.
 
@@ -75,6 +85,8 @@ param(
     [string]$StagingDir,
     [string]$NotesFile,
     [string]$Repository,
+    [string]$SigningKey,
+    [string]$AppName,
     [switch]$Required,
     [switch]$PreRelease,
     [switch]$CreateTag,
@@ -109,6 +121,20 @@ function Invoke-Checked {
     $result = Invoke-Native -Exe $Exe -Arguments $Arguments
     if ($result.Code -ne 0) { throw "$What failed ($Exe exited with $($result.Code))." }
     return $result.Output
+}
+
+# Runs the library's ReleaseSignature as the publisher's tool. Java runs a single source file without a
+# build, but from inside the source tree it would pick up module-info.java, so a copy is run instead.
+function Invoke-SigningTool {
+    param([string]$WorkDir, [string[]]$Arguments)
+    if (-not (Get-Command java -ErrorAction SilentlyContinue)) { throw 'java was not found on PATH; signing needs a JDK 17 or newer.' }
+    $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'src\main\java\com\hamza\updater\ReleaseSignature.java'
+    if (-not (Test-Path -LiteralPath $source)) { throw "The signing tool is not at $source." }
+    $folder = Join-Path $WorkDir 'signing-tool\com\hamza\updater'
+    New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    $copy = Join-Path $folder 'ReleaseSignature.java'
+    Copy-Item -LiteralPath $source -Destination $copy -Force
+    return Invoke-Native -Exe 'java' -Arguments (@($copy) + $Arguments)
 }
 
 # What a release's description holds to make it required; the same line the library looks for.
@@ -148,9 +174,11 @@ function Get-OfferedRelease {
             continue
         }
         if (-not $offered -or $parsed.Number -gt $offered.Number) {
+            $signature = @($release.assets | Where-Object { $_.name -eq "$($asset.name).sig" -and $_.state -eq 'uploaded' }) | Select-Object -First 1
             $offered = [pscustomobject]@{
                 Tag = $release.tag_name; Number = $parsed.Number; Name = $release.name
                 Asset = $asset.name; Size = [long]$asset.size; Digest = [string]$asset.digest
+                Signature = $(if ($signature) { $signature.name } else { $null })
                 PreRelease = [bool]$release.prerelease; Notes = [string]$release.body
             }
         }
@@ -175,6 +203,11 @@ function Show-OfferedRelease($Found) {
         Write-Note "Required: a copy older than $($Found.Minimum.Number) must update and cannot skip it ($($Found.Minimum.Tag) is marked required)."
     } else {
         Write-Ok 'Nothing is required: every copy may skip or postpone it'
+    }
+    if ($o.Signature) {
+        Write-Ok "Signed: $($o.Signature)"
+    } else {
+        Write-Note 'Not signed: a program that carries its publisher''s key (.signedBy) is not offered this release.'
     }
     if (-not $o.Digest) { Write-Note 'GitHub gave no SHA-256 for the file; the program then checks its size only.' }
     if ([string]::IsNullOrWhiteSpace($o.Notes)) { Write-Note 'The release has no description; the "What''s new" box will be empty.' }
@@ -264,6 +297,17 @@ try {
     } else {
         Write-Note "No notes file (docs\release-notes\$tag.md): customers will read GitHub's list of commits as ""What's new""."
     }
+    if (-not $SigningKey) { $SigningKey = $env:DESKTOP_UPDATER_SIGNING_KEY }
+    if ($SigningKey) {
+        if (-not (Test-Path -LiteralPath $SigningKey)) {
+            throw "The signing key $SigningKey is not there. Publishing without it would give programs that expect a signature a release they refuse."
+        }
+        if (-not $AppName) { throw '-AppName is needed with a signing key: the program''s name as AppUpdater.builder("...") has it.' }
+        $SigningKey = (Resolve-Path -LiteralPath $SigningKey).Path
+        Write-Ok "Will be signed for '$AppName' with $SigningKey"
+    } else {
+        Write-Note 'No signing key: the release will not be signed (fine unless the program uses .signedBy).'
+    }
     $isRequired = $Required.IsPresent -or ($notesText -match $script:RequiredMark)
     if ($isRequired) {
         Write-Note "This release is REQUIRED: every copy older than $version must install it and gets no ""Skip this version""."
@@ -313,11 +357,27 @@ try {
     Write-Ok ("{0} -> {1} ({2:N1} MB)" -f $installer.Name, $staged, ($installer.Length / 1MB))
     Write-Ok "SHA-256 $sha256"
 
+    $signatureFile = $null
+    if ($SigningKey) {
+        $signatureFile = "$staged.sig"
+        Remove-Item -LiteralPath $signatureFile -Force -ErrorAction SilentlyContinue
+        $signed = Invoke-SigningTool -WorkDir $StagingDir -Arguments @('sign', '--key', $SigningKey, '--app', $AppName,
+            '--version', $version, '--file', $staged, '--out', $signatureFile)
+        if ($signed.Code -ne 0 -or -not (Test-Path -LiteralPath $signatureFile)) { throw 'Signing the installer failed.' }
+        # Checked at once with the key's public half: what goes up is what a program will accept.
+        $publicKey = (Invoke-SigningTool -WorkDir $StagingDir -Arguments @('public', '--key', $SigningKey)).Output | Select-Object -Last 1
+        $checked = Invoke-SigningTool -WorkDir $StagingDir -Arguments @('verify', '--public', "$publicKey", '--app', $AppName,
+            '--version', $version, '--file', $staged, '--sig', $signatureFile)
+        if ($checked.Code -ne 0) { throw 'The signature just made does not verify; nothing was published.' }
+        Write-Ok "Signed: $(Split-Path -Leaf $signatureFile) (verifies with public key $publicKey)"
+    }
+
     if ($DryRun) {
         Write-Step 'Dry run: nothing was published'
         if ($tagToCreate) { Write-Host "   would create and push tag $tag" }
         Write-Host "   would create release '$title' on $Repository with $asset"
         if ($isRequired) { Write-Host "   would mark it required for every copy older than $version" }
+        if ($signatureFile) { Write-Host "   would publish the signature $(Split-Path -Leaf $signatureFile) beside it" }
         return
     }
 
@@ -328,7 +388,9 @@ try {
         Invoke-Checked -Exe 'git' -Arguments @('push', 'origin', $tag) -What "Pushing tag $tag" | Out-Null
         Write-Ok "Tag $tag created and pushed"
     }
-    $create = @('release', 'create', $tag, $staged, '-R', $Repository, '--title', $title, '--verify-tag')
+    $create = @('release', 'create', $tag, $staged)
+    if ($signatureFile) { $create += $signatureFile }
+    $create += @('-R', $Repository, '--title', $title, '--verify-tag')
     if ($isRequired -and $notesText -notmatch $script:RequiredMark) {
         # The mark goes at the end of the description. Written without a byte-order mark, which would
         # otherwise open the release's text.
@@ -358,6 +420,7 @@ try {
         if ($after.Offered.Size -ne $installer.Length) { $problems += "GitHub holds $($after.Offered.Size) bytes, the installer is $($installer.Length)" }
         if ($after.Offered.Digest -and $after.Offered.Digest -ne "sha256:$sha256") { $problems += 'GitHub''s SHA-256 is not the installer''s' }
         if ($isRequired -and (-not $after.Minimum -or $after.Minimum.Tag -ne $tag)) { $problems += 'it was to be required, and the program does not read it so' }
+        if ($signatureFile -and -not $after.Offered.Signature) { $problems += 'its signature is not among its files' }
     }
     if ($problems.Count -gt 0) { throw "The release is published but not right: $($problems -join '; ')." }
     Write-Ok "Release $tag is what installed copies will be offered"

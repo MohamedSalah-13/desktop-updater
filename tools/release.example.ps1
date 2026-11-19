@@ -34,6 +34,11 @@ $release = @{
     BuildScript = 'packaging\package.ps1'              # makes the installer in target\installer
 }
 # Paths are relative to the folder above this script's folder, the one that holds pom.xml.
+#
+# A program whose code says .signedBy("...") is offered only signed releases. For such a program add its
+# name exactly as AppUpdater.builder("...") has it, and where the key file is (never inside a repository):
+#   $release.AppName    = 'My Program'
+#   $release.SigningKey = Join-Path $env:USERPROFILE '.desktop-updater\release-signing.key'
 # --------------------------------------------------------------------------------------------------
 
 # desktop-updater is looked for beside the repository, wherever in it this script sits.

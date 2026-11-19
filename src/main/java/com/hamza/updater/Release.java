@@ -46,10 +46,25 @@ public record Release(Version version, String title, String notes, Optional<URI>
     /**
      * The installer file.
      *
-     * @param size   bytes; zero or less when the publisher did not say
-     * @param sha256 hex of the file's SHA-256; empty when the publisher did not say, and then only the size
-     *               is checked after the download
+     * @param size         bytes; zero or less when the publisher did not say
+     * @param sha256       hex of the file's SHA-256; empty when the publisher did not say, and then only the
+     *                     size is checked after the download
+     * @param signature    the publisher's {@link ReleaseSignature} of this release, when the source hands it
+     *                     over with the release (a manifest does)
+     * @param signatureUrl where that signature is fetched from, when it is a file of its own (on GitHub,
+     *                     the asset named like the installer with {@code .sig} after it)
      */
-    public record Installer(String name, URI url, long size, Optional<String> sha256) {
+    public record Installer(String name, URI url, long size, Optional<String> sha256, Optional<String> signature,
+                            Optional<URI> signatureUrl) {
+
+        public Installer {
+            signature = signature == null ? Optional.empty() : signature;
+            signatureUrl = signatureUrl == null ? Optional.empty() : signatureUrl;
+        }
+
+        /** An installer nobody signed. */
+        public Installer(String name, URI url, long size, Optional<String> sha256) {
+            this(name, url, size, sha256, Optional.empty(), Optional.empty());
+        }
     }
 }

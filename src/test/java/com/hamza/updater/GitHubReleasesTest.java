@@ -134,6 +134,17 @@ class GitHubReleasesTest {
     }
 
     @Test
+    void theSignatureIsTheFileNamedLikeTheInstallerWithSigAfterIt() throws IOException {
+        Release signed = answering(release("v2.7.0", false, false, "App-2.7.0-setup.exe", "App-2.7.0-setup.exe.sig",
+                "Other-setup.exe.sig")).latest().orElseThrow();
+        assertEquals("App-2.7.0-setup.exe", signed.installer().name());
+        assertEquals(Optional.of(URI.create("https://github.com/owner/app/releases/download/v2.7.0/App-2.7.0-setup.exe.sig")),
+                signed.installer().signatureUrl());
+        Release unsigned = answering(release("v2.7.0", false, false, "App-2.7.0-setup.exe")).latest().orElseThrow();
+        assertEquals(Optional.empty(), unsigned.installer().signatureUrl());
+    }
+
+    @Test
     void noMarkMeansNothingIsRequired() throws IOException {
         Release latest = answering(release("v2.7.0", false, false, "App-2.7.0-setup.exe")).latest().orElseThrow();
         assertEquals(Optional.empty(), latest.minimum());

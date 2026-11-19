@@ -22,7 +22,8 @@ import java.util.Optional;
  *   "title": "Program 2.5.0",
  *   "notes": "What changed.",
  *   "page": "https://example.com/releases/2.5.0",
- *   "minimum": "2.4.0"
+ *   "minimum": "2.4.0",
+ *   "signature": "Base64, from ReleaseSignature's sign"
  * }
  * }</pre>
  *
@@ -76,8 +77,9 @@ public final class ManifestUrl implements ReleaseSource {
         Http.requireSafe(url);
         String path = url.getPath() == null ? "" : url.getPath();
         String name = path.substring(path.lastIndexOf('/') + 1);
-        Release.Installer installer =
-                new Release.Installer(name, url, Json.number(manifest, "size", -1), Optional.of(sha256));
+        String signature = Json.text(manifest, "signature").strip();
+        Release.Installer installer = new Release.Installer(name, url, Json.number(manifest, "size", -1),
+                Optional.of(sha256), signature.isEmpty() ? Optional.empty() : Optional.of(signature), Optional.empty());
         // A minimum above the release itself could never be met; it is read as none.
         Optional<Version> minimum = Version.parse(Json.text(manifest, "minimum"))
                 .filter(oldest -> oldest.compareTo(version) <= 0);

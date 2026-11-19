@@ -2,6 +2,7 @@ package com.hamza.updater.fx;
 
 import com.hamza.updater.AppUpdater;
 import com.hamza.updater.CheckResult;
+import com.hamza.updater.Download;
 import com.hamza.updater.Release;
 import com.hamza.updater.Version;
 import javafx.application.Platform;
@@ -15,7 +16,6 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.TextArea;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -61,6 +61,7 @@ public final class UpdatePrompt {
     private Duration interval = Duration.ofHours(6);
     private Runnable exit = UpdatePrompt::closeProgram;
     private boolean enforce;
+    private boolean ahead;
 
     private ScheduledExecutorService background;
     private boolean showing;
@@ -117,6 +118,17 @@ public final class UpdatePrompt {
         return this;
     }
 
+    /**
+     * Downloads a release the program found on its own before asking, so that the person is told "version
+     * 2.5 is ready to install" and pressing the button installs at once, with no wait for a download. A
+     * release the person skipped is not downloaded, and one that could not be fetched is offered the
+     * ordinary way. Off unless said: it spends the person's connection - tens of megabytes - unasked.
+     */
+    public UpdatePrompt downloadInBackground(boolean ahead) {
+        this.ahead = ahead;
+        return this;
+    }
+
     /** Starts looking: once shortly after now, then at every interval, until {@link #stop}. */
     public UpdatePrompt start() {
         background().scheduleWithFixedDelay(this::lookQuietly, FIRST_LOOK.toMillis(), interval.toMillis(),
@@ -130,13 +142,16 @@ public final class UpdatePrompt {
             return;
         }
         checking = true;
-        background().execute(() -> {
+        // A thread of its own: the background one may be busy downloading a release ahead of the question.
+        Thread look = new Thread(() -> {
             CheckResult result = updater.check();
             Platform.runLater(() -> {
                 checking = false;
                 answer(result);
             });
-        });
+        }, "update-check-now");
+        look.setDaemon(true);
+        look.start();
     }
 
     /**
@@ -169,7 +184,10 @@ public final class UpdatePrompt {
         try {
             if (updater.check() instanceof CheckResult.Available available
                     && (available.required() || !updater.isSkipped(available.release().version()))) {
-                Platform.runLater(() -> announce(available));
+                boolean ready = ahead && updater.canInstall() && fetchedAhead(available.release());
+                if (!Thread.currentThread().isInterrupted()) {
+                    Platform.runLater(() -> announce(available, ready));
+                }
             }
         } catch (RuntimeException unexpected) {
             // One look that went wrong must not end the looks after it.
@@ -177,10 +195,24 @@ public final class UpdatePrompt {
     }
 
     /**
+     * Downloads the installer before anybody is asked, so that the question is "install it?" and not
+     * "wait for it?". A download that does not finish is no failure: the offer then fetches what is
+     * missing with the person watching.
+     */
+    private boolean fetchedAhead(Release release) {
+        try {
+            updater.download(release, Download.Progress.NONE);
+            return true;
+        } catch (IOException | RuntimeException notNow) {
+            return false;
+        }
+    }
+
+    /**
      * A release the program found on its own, on a window that is shown: once a run when it may be put
      * off, at every look when it is required.
      */
-    private void announce(CheckResult.Available available) {
+    private void announce(CheckResult.Available available, boolean ready) {
         if (showing || (!available.required() && available.release().version().equals(declined))) {
             return;
         }
@@ -190,19 +222,19 @@ public final class UpdatePrompt {
                     if (shown) {
                         owner.showingProperty().removeListener(whenShown);
                         whenShown = null;
-                        Platform.runLater(() -> announce(available));
+                        Platform.runLater(() -> announce(available, ready));
                     }
                 };
                 owner.showingProperty().addListener(whenShown);
             }
             return;
         }
-        offer(available);
+        offer(available, ready);
     }
 
     private void answer(CheckResult result) {
         switch (result) {
-            case CheckResult.Available available -> offer(available);
+            case CheckResult.Available available -> offer(available, false);
             case CheckResult.UpToDate upToDate ->
                     message(Alert.AlertType.INFORMATION, texts.upToDate().formatted(upToDate.current()), "");
             case CheckResult.NotInstalled notInstalled ->
@@ -211,20 +243,22 @@ public final class UpdatePrompt {
         }
     }
 
-    private void offer(CheckResult.Available available) {
+    /** @param ready the installer is already downloaded: the question is whether to install it */
+    private void offer(CheckResult.Available available, boolean ready) {
         Release release = available.release();
         boolean installs = updater.canInstall();
         Optional<URI> page = release.page();
         boolean required = available.required();
         boolean onlyWayOn = required && enforce;
-        ButtonType update = new ButtonType(installs ? texts.updateNow() : texts.openPage(), ButtonBar.ButtonData.OK_DONE);
+        ButtonType update = new ButtonType(
+                !installs ? texts.openPage() : ready ? texts.installNow() : texts.updateNow(), ButtonBar.ButtonData.OK_DONE);
         ButtonType later = new ButtonType(onlyWayOn ? texts.closeProgram() : texts.later(),
                 ButtonBar.ButtonData.CANCEL_CLOSE);
         ButtonType skip = new ButtonType(texts.skip(), ButtonBar.ButtonData.LEFT);
 
         Alert alert = new Alert(required ? Alert.AlertType.WARNING : Alert.AlertType.INFORMATION);
         alert.setTitle(texts.title());
-        alert.setHeaderText((required ? texts.requiredHeader() : texts.available())
+        alert.setHeaderText((required ? texts.requiredHeader() : ready ? texts.readyHeader() : texts.available())
                 .formatted(release.version(), updater.appName()));
         VBox content = new VBox(8);
         if (required) {
@@ -232,12 +266,7 @@ public final class UpdatePrompt {
         }
         content.getChildren().add(wrapped(texts.current().formatted(available.current())));
         if (!release.notes().isBlank()) {
-            TextArea notes = new TextArea(release.notes().strip());
-            notes.setEditable(false);
-            notes.setWrapText(true);
-            notes.setPrefRowCount(8);
-            notes.setPrefColumnCount(40);
-            content.getChildren().addAll(new Label(texts.whatsNew()), notes);
+            content.getChildren().addAll(new Label(texts.whatsNew()), NotesView.of(release.notes(), UpdatePrompt::open));
         }
         if (installs) {
             content.getChildren().add(wrapped(texts.willRestart()));
@@ -263,8 +292,9 @@ public final class UpdatePrompt {
             if (!others.isEmpty()) {
                 // The installer could not replace files these still hold; the offer comes back once told.
                 message(Alert.AlertType.WARNING, texts.closeOthers(), String.join("\n", others));
-                offer(available);
+                offer(available, ready);
             } else if (installs) {
+                // Downloaded ahead or not, the same step: what is already there is checked and kept.
                 download(available);
             } else {
                 page.ifPresent(UpdatePrompt::open);
@@ -314,11 +344,15 @@ public final class UpdatePrompt {
             } catch (InterruptedIOException cancelled) {
                 // Cancelling does not get a person past an update that is the only way on.
                 if (onlyWayOn(available)) {
-                    Platform.runLater(() -> offer(available));
+                    Platform.runLater(() -> offer(available, false));
                 }
                 return;
             } catch (IOException | RuntimeException failure) {
                 Platform.runLater(() -> failed(dialog, available, texts.downloadFailed(), failure));
+                return;
+            }
+            if (Thread.currentThread().isInterrupted()) {
+                // Cancelled in the moment the download ended: nothing is installed behind a closed window.
                 return;
             }
             Platform.runLater(() -> {
@@ -363,7 +397,7 @@ public final class UpdatePrompt {
             release.page().ifPresent(UpdatePrompt::open);
         }
         if (onlyWayOn(available)) {
-            offer(available);
+            offer(available, false);
         }
     }
 
@@ -405,6 +439,15 @@ public final class UpdatePrompt {
 
     private static String megabytes(long bytes) {
         return String.format(Locale.ROOT, "%.1f", bytes / (1024.0 * 1024.0));
+    }
+
+    /** A link in the release's notes. */
+    private static void open(String address) {
+        try {
+            open(URI.create(address));
+        } catch (IllegalArgumentException notAnAddress) {
+            // A link that leads nowhere is left alone.
+        }
     }
 
     /** Opens a web page in the person's browser. HTTPS only: the address came from the release. */

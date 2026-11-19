@@ -61,7 +61,7 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.2.0</version>
+    <version>v0.3.0</version>
 </dependency>
 ```
 
@@ -199,6 +199,45 @@ than knowing the switch exists.
 - **Two programs that must match** (client and server): marking a release required does not order the
   updates. Say in the release notes which side updates first; the offer shows them.
 
+## Downloading ahead
+
+`.downloadInBackground(true)` on the `UpdatePrompt` fetches a release the program found on its own before
+asking, so the window says "version 2.5 is ready to install" and the button installs at once. It is off by
+default because it spends the customer's connection - tens of megabytes - unasked; turn it on when the user
+wants it, not as a matter of course. A release the person skipped is not downloaded.
+
+## Signed releases
+
+The SHA-256 a release publishes ties the file to the release; it does not help when the release itself is
+forged by somebody who took over the GitHub account. With signing, the program carries the publisher's
+public key and is offered only releases signed with the private key, which never goes near GitHub.
+
+Setting it up is the user's decision and partly the user's own action:
+
+1. **The key is made by the user, once:** `..\desktop-updater\tools\signing-key.ps1 -New`. It writes the
+   private key to `%USERPROFILE%\.desktop-updater\release-signing.key` and prints the public key. Ask the
+   user to run it and give you the printed public key. Do not run it for them unasked, do not read the key
+   file, and never copy it into a repository, a commit, a log or a message.
+2. **The program gets the public key:** `.signedBy("MCowBQYDK2VwAyEA...")` on the `AppUpdater` builder.
+   The public key is not a secret; it belongs in the code.
+3. **The release script signs:** in the project's `packaging/release.ps1` add
+   `$release.AppName = '<exactly the builder's name>'` and
+   `$release.SigningKey = Join-Path $env:USERPROFILE '.desktop-updater\release-signing.key'`.
+   The script then signs the installer, publishes `<installer>.sig` beside it, and stops rather than
+   publish unsigned when the key file is missing.
+
+Tell the user what turning it on commits them to, before they do:
+
+- From the first version built with `signedBy`, **every** release must be signed, or installed copies are
+  offered nothing. `release.ps1 -VerifyOnly` says whether the newest release is signed.
+- The key file is the only copy. Lost, no release can be signed again and installed copies accept nothing
+  else; they need a backup of it somewhere safe.
+- Copies installed before the key was added do not check anything; protection starts with the first
+  signed version a customer installs.
+- The program's name is part of what is signed, so `AppName` and `AppUpdater.builder("...")` must be the
+  same text. One key can serve several programs.
+- A runtime image built with JDK 21 or older needs `jdk.crypto.ec` for the signature check.
+
 ## Variants
 
 - **Private repository / own server:** `ReleaseSource.manifest("https://example.com/app/latest.json")`
@@ -220,6 +259,9 @@ than knowing the switch exists.
 - **Downloads but does not install:** read `%LOCALAPPDATA%\<App name>-updates\update.log`. "still running"
   means `onExit` did not end the process (step 4).
 - **Installs beside the old version:** the `--win-upgrade-uuid` changed between the two installers.
+- **"Could not check" naming a signature:** the program uses `signedBy` and the newest release is unsigned,
+  or signed with another key or for another program name. `release.ps1 -VerifyOnly` shows whether it is
+  signed; `AppName` must equal the builder's name.
 - **"Could not check":** the reason is in the dialog. HTTP 403 from GitHub is its hourly limit of 60
   requests per address; a TLS error in a jlink image is the `jdk.crypto.ec` note in step 6.
 

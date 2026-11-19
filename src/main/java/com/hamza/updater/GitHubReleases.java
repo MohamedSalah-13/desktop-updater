@@ -145,7 +145,28 @@ public final class GitHubReleases implements ReleaseSource {
             Optional<String> sha256 = digest.matches("sha256:[0-9a-f]{64}")
                     ? Optional.of(digest.substring("sha256:".length()))
                     : Optional.empty();
-            return Optional.of(new Release.Installer(name, url, Json.number(asset, "size", -1), sha256));
+            return Optional.of(new Release.Installer(name, url, Json.number(asset, "size", -1), sha256,
+                    Optional.empty(), assetUrl(release, name + ".sig")));
+        }
+        return Optional.empty();
+    }
+
+    /** The address of the release's file of exactly this name, when it has one; a GitHub address or none. */
+    private static Optional<URI> assetUrl(Map<String, Object> release, String wanted) {
+        for (Object entry : Json.array(release.get("assets"))) {
+            Map<String, Object> asset = Json.object(entry);
+            String state = Json.text(asset, "state");
+            if (!Json.text(asset, "name").equalsIgnoreCase(wanted) || !(state.isEmpty() || state.equals("uploaded"))) {
+                continue;
+            }
+            try {
+                URI url = URI.create(Json.text(asset, "browser_download_url"));
+                if ("https".equalsIgnoreCase(url.getScheme()) && "github.com".equalsIgnoreCase(url.getHost())) {
+                    return Optional.of(url);
+                }
+            } catch (IllegalArgumentException notAnAddress) {
+                // Not a file that can be fetched.
+            }
         }
         return Optional.empty();
     }

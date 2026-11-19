@@ -1,14 +1,20 @@
 package com.hamza.updater;
 
+import com.hamza.updater.internal.Http;
+
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -39,8 +45,19 @@ public final class AppUpdater {
     private final Download download;
     private final InstallerLaunch launch;
     private final Supplier<List<String>> alongside;
+    private final Optional<String> publicKey;
+    private final SignatureFetch signatures;
+    private final ReentrantLock downloading = new ReentrantLock();
+
+    /** One GET of a signature file, as text. */
+    @FunctionalInterface
+    public interface SignatureFetch {
+        String fetch(URI address) throws IOException;
+    }
 
     private AppUpdater(Builder builder) {
+        this.publicKey = builder.publicKey;
+        this.signatures = builder.signatures;
         this.alongside = builder.alongside;
         this.appName = builder.appName;
         this.current = builder.current;
@@ -74,6 +91,10 @@ public final class AppUpdater {
         try {
             Optional<Release> latest = source.latest();
             if (latest.isPresent() && latest.get().version().isNewerThan(current.get())) {
+                Optional<String> refusal = publicKey.isPresent() ? unsigned(latest.get()) : Optional.empty();
+                if (refusal.isPresent()) {
+                    return new CheckResult.Failed(refusal.get());
+                }
                 return new CheckResult.Available(latest.get(), current.get(),
                         latest.get().isRequiredFor(current.get()));
             }
@@ -85,12 +106,52 @@ public final class AppUpdater {
     }
 
     /**
+     * Why a release is not the publisher's, for a program that carries the publisher's key; empty when its
+     * signature holds. The signature covers the published SHA-256 and size, and the download is checked
+     * against those same two, so a release that passes here cannot arrive as another file.
+     */
+    private Optional<String> unsigned(Release release) throws IOException {
+        Release.Installer installer = release.installer();
+        String name = "Release " + release.version();
+        if (installer.sha256().isEmpty() || installer.size() <= 0) {
+            return Optional.of(name + " publishes no SHA-256 or size of its installer, so its signature cannot be checked");
+        }
+        String signature;
+        if (installer.signature().isPresent()) {
+            signature = installer.signature().get();
+        } else if (installer.signatureUrl().isPresent()) {
+            signature = signatures.fetch(installer.signatureUrl().get());
+        } else {
+            return Optional.of(name + " is not signed; this program installs only releases signed by its publisher");
+        }
+        // A signature is under a hundred characters; anything long is not one.
+        if (signature.length() > 512 || !ReleaseSignature.verify(publicKey.get(), signature, appName,
+                release.version().toString(), installer.sha256().get(), installer.size())) {
+            return Optional.of("The signature of " + name.toLowerCase(java.util.Locale.ROOT)
+                    + " is not the publisher's; it is not offered");
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Downloads the release's installer and checks it against the published size and SHA-256.
      *
      * @return the installer, ready for {@link #install}
      */
     public Path download(Release release, Download.Progress progress) throws IOException {
-        return download.fetch(release.installer(), folder, progress);
+        // One download at a time: a second caller - the person pressing "Update now" while the release is
+        // being fetched in the background - waits, and then finds the file already there.
+        try {
+            downloading.lockInterruptibly();
+        } catch (InterruptedException cancelled) {
+            Thread.currentThread().interrupt();
+            throw new InterruptedIOException("The download was cancelled");
+        }
+        try {
+            return download.fetch(release.installer(), folder, progress);
+        } finally {
+            downloading.unlock();
+        }
     }
 
     /** Whether this computer can run the installer itself; elsewhere the release's page is all there is. */
@@ -124,6 +185,8 @@ public final class AppUpdater {
     public void skip(Version version) {
         Properties state = state();
         state.setProperty("skipped", version.toString());
+        // An installer fetched ahead of the question is of no use to somebody who said no.
+        download.clear(folder);
         try {
             Files.createDirectories(folder);
             try (OutputStream out = Files.newOutputStream(stateFile())) {
@@ -171,6 +234,14 @@ public final class AppUpdater {
         private Download download = new Download();
         private InstallerLaunch launch = new InstallerLaunch();
         private Supplier<List<String>> alongside = InstallerLaunch::runningAlongside;
+        private Optional<String> publicKey = Optional.empty();
+        private SignatureFetch signatures = address -> {
+            Http.Text answer = Http.get(address, Map.of("Accept", "application/octet-stream"));
+            if (answer.status() != 200) {
+                throw new IOException("The release's signature answered HTTP " + answer.status());
+            }
+            return answer.body().strip();
+        };
 
         private Builder(String appName) {
             if (appName == null || appName.isBlank()) {
@@ -224,6 +295,30 @@ public final class AppUpdater {
         /** Another way to start the installer, for a test. */
         public Builder launch(InstallerLaunch launch) {
             this.launch = Objects.requireNonNull(launch);
+            return this;
+        }
+
+        /**
+         * The publisher's public key, as {@code ReleaseSignature keygen} printed it. With it the program is
+         * offered only releases that carry the publisher's {@link ReleaseSignature}: a release put up by
+         * somebody who took over the place releases are published - without the private key - is ignored.
+         *
+         * <p>From the first version that says this on, every release has to be signed, or installed copies
+         * are offered nothing.
+         *
+         * @throws IllegalArgumentException when the text is not such a key
+         */
+        public Builder signedBy(String publicKey) {
+            if (publicKey == null || !ReleaseSignature.isPublicKey(publicKey)) {
+                throw new IllegalArgumentException("Not a public key from ReleaseSignature keygen");
+            }
+            this.publicKey = Optional.of(publicKey.strip());
+            return this;
+        }
+
+        /** Another way to fetch a release's signature, for a test. */
+        public Builder signatures(SignatureFetch signatures) {
+            this.signatures = Objects.requireNonNull(signatures);
             return this;
         }
 
