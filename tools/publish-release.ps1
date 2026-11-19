@@ -353,6 +353,9 @@ try {
     New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
     $staged = Join-Path $StagingDir $asset
     Copy-Item -LiteralPath $installer.FullName -Destination $staged -Force
+    # jpackage leaves its installer read-only and the copy inherits that; "mvn clean" cannot delete a
+    # read-only file on Windows, so the next release's build would stop at this one.
+    Set-ItemProperty -LiteralPath $staged -Name IsReadOnly -Value $false
     $sha256 = (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Ok ("{0} -> {1} ({2:N1} MB)" -f $installer.Name, $staged, ($installer.Length / 1MB))
     Write-Ok "SHA-256 $sha256"
