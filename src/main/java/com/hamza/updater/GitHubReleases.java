@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
  * The releases of a public GitHub repository, read without a token ({@code GET /repos/{owner}/{name}/releases}).
  *
  * <p>A release counts when it is published (not a draft), its tag is a version ({@code v2.4.0}), and it has
- * an asset whose name matches {@link #asset}. The newest by version wins, not the newest by date. GitHub
+ * an asset whose name matches {@link #asset} (or {@link #assetFor} for the system the program runs on). The
+ * newest by version wins, not the newest by date. GitHub
  * gives every asset's SHA-256, so the download is checked against it.
  *
  * <p>A release whose description holds {@code <!-- update: required -->} is one no older copy may skip
@@ -41,39 +42,73 @@ public final class GitHubReleases implements ReleaseSource {
 
     private final String repository;
     private final String assetGlob;
+    private final Map<Os, String> assetGlobs;
     private final boolean preReleases;
     private final Fetch fetch;
+    private final Os os;
+    private final String arch;
 
     GitHubReleases(String repository) {
-        this(repository, "*.exe", false, Http::get);
+        this(repository, "*.exe", Map.of(), false, Http::get, Os.current(), Os.arch());
     }
 
-    private GitHubReleases(String repository, String assetGlob, boolean preReleases, Fetch fetch) {
+    private GitHubReleases(String repository, String assetGlob, Map<Os, String> assetGlobs, boolean preReleases,
+                           Fetch fetch, Os os, String arch) {
         if (repository == null || !REPOSITORY.matcher(repository).matches()) {
             throw new IllegalArgumentException("Not an owner/name repository: " + repository);
         }
         this.repository = repository;
         this.assetGlob = assetGlob;
+        this.assetGlobs = Map.copyOf(assetGlobs);
         this.preReleases = preReleases;
         this.fetch = fetch;
+        this.os = os;
+        this.arch = arch;
     }
 
     /**
      * Which of a release's files is the installer, by name: {@code *} stands for any text and {@code ?} for
-     * one character, upper and lower case alike. {@code *.exe} unless said otherwise.
+     * one character, upper and lower case alike. {@code *.exe} unless said otherwise. It holds on every
+     * system that {@link #assetFor} does not name.
      */
     public GitHubReleases asset(String glob) {
-        return new GitHubReleases(repository, glob, preReleases, fetch);
+        return new GitHubReleases(repository, glob, assetGlobs, preReleases, fetch, os, arch);
+    }
+
+    /**
+     * The installer for one kind of system, for a program that is published for several:
+     *
+     * <pre>{@code
+     * ReleaseSource.github("owner/app")
+     *         .asset("*-setup.exe")
+     *         .assetFor(Os.LINUX, "*-linux-{arch}.deb")
+     *         .assetFor(Os.MAC, "*-macos-{arch}.dmg")
+     * }</pre>
+     *
+     * <p>{@code {arch}} stands for the processor the program runs on, {@code x64} or {@code arm64}
+     * ({@link Os#arch}). A release that has no file for the system the program runs on is passed over
+     * there - nobody is offered an update they cannot install.
+     */
+    public GitHubReleases assetFor(Os system, String glob) {
+        Map<Os, String> globs = new java.util.EnumMap<>(Os.class);
+        globs.putAll(assetGlobs);
+        globs.put(system, glob);
+        return new GitHubReleases(repository, assetGlob, globs, preReleases, fetch, os, arch);
     }
 
     /** Whether releases marked "pre-release" on GitHub are offered too. They are not unless said. */
     public GitHubReleases includePreReleases(boolean include) {
-        return new GitHubReleases(repository, assetGlob, include, fetch);
+        return new GitHubReleases(repository, assetGlob, assetGlobs, include, fetch, os, arch);
     }
 
     /** With another way to ask, for a test. */
     GitHubReleases fetchingWith(Fetch other) {
-        return new GitHubReleases(repository, assetGlob, preReleases, other);
+        return new GitHubReleases(repository, assetGlob, assetGlobs, preReleases, other, os, arch);
+    }
+
+    /** As if run on another system, for a test. */
+    GitHubReleases onSystem(Os system, String processor) {
+        return new GitHubReleases(repository, assetGlob, assetGlobs, preReleases, fetch, system, processor);
     }
 
     @Override
@@ -89,7 +124,7 @@ public final class GitHubReleases implements ReleaseSource {
         } catch (IllegalArgumentException notJson) {
             throw new IOException("GitHub's answer is not a list of releases: " + notJson.getMessage());
         }
-        Pattern installerName = glob(assetGlob);
+        Pattern installerName = glob(assetGlobs.getOrDefault(os, assetGlob).replace("{arch}", arch));
         Release newest = null;
         List<Version> required = new ArrayList<>();
         for (Object entry : Json.array(parsed)) {

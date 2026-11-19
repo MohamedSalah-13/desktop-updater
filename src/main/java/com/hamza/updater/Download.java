@@ -17,6 +17,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -187,18 +188,21 @@ public final class Download {
 
     /**
      * The installer's name as a plain file name in the folder: whatever a publisher's text says, it never
-     * names a path, and it is an {@code .exe} or {@code .msi}.
+     * names a path, and it is one of the kinds of installer a system knows ({@link #INSTALLERS}).
      */
     static String safeName(String published) throws IOException {
         String name = published == null ? "" : published.strip();
         name = name.substring(Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\')) + 1)
                 .replaceAll("[^A-Za-z0-9._ ()-]", "_");
         String lower = name.toLowerCase(Locale.ROOT);
-        if (name.startsWith(".") || !(lower.endsWith(".exe") || lower.endsWith(".msi"))) {
+        if (name.startsWith(".") || INSTALLERS.stream().noneMatch(kind -> lower.endsWith("." + kind))) {
             throw new IOException("Not an installer's name: " + published);
         }
         return name;
     }
+
+    /** Windows, Linux and macOS installers, by the end of their names. */
+    static final List<String> INSTALLERS = List.of("exe", "msi", "deb", "rpm", "dmg", "pkg");
 
     /**
      * Removes the installers left in the folder. Called once the program is up to date: the installer that
@@ -211,7 +215,7 @@ public final class Download {
     }
 
     private static void removeOthers(Path folder, Path file, Path part) {
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(folder, "*.{exe,msi,part}")) {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(folder, "*.{" + String.join(",", INSTALLERS) + ",part}")) {
             for (Path other : files) {
                 if (!other.equals(file) && !other.equals(part)) {
                     Files.deleteIfExists(other);

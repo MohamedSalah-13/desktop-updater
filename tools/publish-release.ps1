@@ -52,6 +52,12 @@
     The program's name exactly as its code gives it to AppUpdater.builder("..."). It is part of what is
     signed, so it is required with -SigningKey.
 
+.PARAMETER OtherAssets
+    Name patterns of the installers for other systems that a release should also carry - the same text as
+    the program's .assetFor(...) calls, with the processor written out: '*-linux-x64.deb',
+    '*-macos-arm64.dmg'. This script publishes the Windows installer only; the others are reported when
+    it reads the releases back, so that a release without them does not go unnoticed.
+
 .PARAMETER PreRelease
     Publishes a pre-release. Say it only for a program whose updater includes pre-releases.
 
@@ -87,6 +93,7 @@ param(
     [string]$Repository,
     [string]$SigningKey,
     [string]$AppName,
+    [string[]]$OtherAssets = @(),
     [switch]$Required,
     [switch]$PreRelease,
     [switch]$CreateTag,
@@ -137,6 +144,8 @@ function Invoke-SigningTool {
     return Invoke-Native -Exe 'java' -Arguments (@($copy) + $Arguments)
 }
 
+$script:OtherSystems = @($OtherAssets | Where-Object { $_ })
+
 # What a release's description holds to make it required; the same line the library looks for.
 $script:RequiredMark = '<!--\s*update\s*:\s*required\s*-->'
 $script:RequiredLine = '<!-- update: required -->'
@@ -179,6 +188,7 @@ function Get-OfferedRelease {
                 Tag = $release.tag_name; Number = $parsed.Number; Name = $release.name
                 Asset = $asset.name; Size = [long]$asset.size; Digest = [string]$asset.digest
                 Signature = $(if ($signature) { $signature.name } else { $null })
+                Files = @($release.assets | Where-Object { $_.state -eq 'uploaded' } | ForEach-Object { $_.name })
                 PreRelease = [bool]$release.prerelease; Notes = [string]$release.body
             }
         }
@@ -208,6 +218,17 @@ function Show-OfferedRelease($Found) {
         Write-Ok "Signed: $($o.Signature)"
     } else {
         Write-Note 'Not signed: a program that carries its publisher''s key (.signedBy) is not offered this release.'
+    }
+    # The installers of other systems are usually added to the release after it is published (a workflow
+    # builds them), so one that is missing is worth knowing and no failure: until it is there, copies on
+    # that system are simply not offered this release.
+    foreach ($glob in $script:OtherSystems) {
+        $there = @($o.Files | Where-Object { $_ -like $glob })
+        if ($there.Count -gt 0) {
+            Write-Ok "Also carries $($there -join ', ')"
+        } else {
+            Write-Note "No file matching $glob yet: copies on that system are not offered $($o.Tag) until it is added."
+        }
     }
     if (-not $o.Digest) { Write-Note 'GitHub gave no SHA-256 for the file; the program then checks its size only.' }
     if ([string]::IsNullOrWhiteSpace($o.Notes)) { Write-Note 'The release has no description; the "What''s new" box will be empty.' }

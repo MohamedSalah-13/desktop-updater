@@ -35,6 +35,10 @@ $release = @{
 }
 # Paths are relative to the folder above this script's folder, the one that holds pom.xml.
 #
+# A program that is also published for Linux or macOS (.assetFor(Os.LINUX, "*-linux-{arch}.deb") ...) names
+# those files here, with the processor written out, so that -VerifyOnly says whether a release has them:
+#   $release.OtherAssets = @('*-linux-x64.deb', '*-macos-arm64.dmg', '*-macos-x64.dmg')
+#
 # A program whose code says .signedBy("...") is offered only signed releases. For such a program add its
 # name exactly as AppUpdater.builder("...") has it, and where the key file is (never inside a repository):
 #   $release.AppName    = 'My Program'

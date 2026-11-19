@@ -50,7 +50,7 @@ public final class InstallerLaunch {
     }
 
     public static boolean isSupported() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return Os.current() == Os.WINDOWS;
     }
 
     /**

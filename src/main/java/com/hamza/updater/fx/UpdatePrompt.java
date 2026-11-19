@@ -3,6 +3,7 @@ package com.hamza.updater.fx;
 import com.hamza.updater.AppUpdater;
 import com.hamza.updater.CheckResult;
 import com.hamza.updater.Download;
+import com.hamza.updater.Os;
 import com.hamza.updater.Release;
 import com.hamza.updater.Version;
 import javafx.application.Platform;
@@ -247,11 +248,14 @@ public final class UpdatePrompt {
     private void offer(CheckResult.Available available, boolean ready) {
         Release release = available.release();
         boolean installs = updater.canInstall();
+        // Linux and macOS: the installer is downloaded, checked and opened; the person finishes it.
+        boolean opens = updater.canOpen();
         Optional<URI> page = release.page();
         boolean required = available.required();
         boolean onlyWayOn = required && enforce;
         ButtonType update = new ButtonType(
-                !installs ? texts.openPage() : ready ? texts.installNow() : texts.updateNow(), ButtonBar.ButtonData.OK_DONE);
+                opens ? texts.downloadInstaller() : !installs ? texts.openPage() : ready ? texts.installNow() : texts.updateNow(),
+                ButtonBar.ButtonData.OK_DONE);
         ButtonType later = new ButtonType(onlyWayOn ? texts.closeProgram() : texts.later(),
                 ButtonBar.ButtonData.CANCEL_CLOSE);
         ButtonType skip = new ButtonType(texts.skip(), ButtonBar.ButtonData.LEFT);
@@ -274,7 +278,7 @@ public final class UpdatePrompt {
         alert.getDialogPane().setContent(content);
         // A required release cannot be skipped: the publisher said older copies must not stay.
         List<ButtonType> buttons = new ArrayList<>();
-        if (installs || page.isPresent()) {
+        if (installs || opens || page.isPresent()) {
             buttons.add(update);
         }
         buttons.add(later);
@@ -293,7 +297,7 @@ public final class UpdatePrompt {
                 // The installer could not replace files these still hold; the offer comes back once told.
                 message(Alert.AlertType.WARNING, texts.closeOthers(), String.join("\n", others));
                 offer(available, ready);
-            } else if (installs) {
+            } else if (installs || opens) {
                 // Downloaded ahead or not, the same step: what is already there is checked and kept.
                 download(available);
             } else {
@@ -355,6 +359,18 @@ public final class UpdatePrompt {
                 // Cancelled in the moment the download ended: nothing is installed behind a closed window.
                 return;
             }
+            if (!updater.canInstall()) {
+                boolean opened;
+                try {
+                    updater.open(installer);
+                    opened = true;
+                } catch (IOException | RuntimeException noHandler) {
+                    opened = false;
+                }
+                boolean worked = opened;
+                Platform.runLater(() -> handedOver(dialog, available, installer, worked));
+                return;
+            }
             Platform.runLater(() -> {
                 dialog.setHeaderText(texts.starting());
                 bar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -376,6 +392,23 @@ public final class UpdatePrompt {
         showing = true;
         dialog.show();
         worker.start();
+    }
+
+    /**
+     * Linux and macOS: the installer is downloaded and the system was asked to open it. The person is told
+     * where it is either way - a system with nothing to open it with still has the file.
+     */
+    private void handedOver(Dialog<?> progress, CheckResult.Available available, Path installer, boolean opened) {
+        progress.setOnCloseRequest(null);
+        progress.close();
+        // A path reads left to right, in an Arabic window too.
+        message(Alert.AlertType.INFORMATION, opened ? texts.openedInstaller() : texts.openFailed(),
+                "‪" + installer + "‬");
+        // Asked and answered: the same release is not offered again while this copy keeps running.
+        declined = available.release().version();
+        if (onlyWayOn(available)) {
+            close();
+        }
     }
 
     private void failed(Dialog<?> progress, CheckResult.Available available, String what, Exception failure) {
@@ -406,6 +439,8 @@ public final class UpdatePrompt {
         alert.setTitle(texts.title());
         alert.setHeaderText(text);
         alert.getDialogPane().setContent(detail.isBlank() ? null : wrapped(detail));
+        // In the window's language, not the computer's.
+        alert.getButtonTypes().setAll(new ButtonType(texts.ok(), ButtonBar.ButtonData.OK_DONE));
         dress(alert);
         showing = true;
         alert.showAndWait();
@@ -455,10 +490,10 @@ public final class UpdatePrompt {
         if (!"https".equalsIgnoreCase(page.getScheme())) {
             return;
         }
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        List<String> command = os.contains("win")
+        Os os = Os.current();
+        List<String> command = os == Os.WINDOWS
                 ? List.of("rundll32", "url.dll,FileProtocolHandler", page.toString())
-                : List.of(os.contains("mac") ? "open" : "xdg-open", page.toString());
+                : List.of(os == Os.MAC ? "open" : "xdg-open", page.toString());
         try {
             new ProcessBuilder(command)
                     .redirectOutput(ProcessBuilder.Redirect.DISCARD)

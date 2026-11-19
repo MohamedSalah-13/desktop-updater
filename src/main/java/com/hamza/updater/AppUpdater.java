@@ -48,6 +48,8 @@ public final class AppUpdater {
     private final Optional<String> publicKey;
     private final SignatureFetch signatures;
     private final ReentrantLock downloading = new ReentrantLock();
+    private final Os os;
+    private final InstallerLaunch.Starter opener;
 
     /** One GET of a signature file, as text. */
     @FunctionalInterface
@@ -56,6 +58,8 @@ public final class AppUpdater {
     }
 
     private AppUpdater(Builder builder) {
+        this.os = builder.os;
+        this.opener = builder.opener;
         this.publicKey = builder.publicKey;
         this.signatures = builder.signatures;
         this.alongside = builder.alongside;
@@ -154,9 +158,36 @@ public final class AppUpdater {
         }
     }
 
-    /** Whether this computer can run the installer itself; elsewhere the release's page is all there is. */
+    /** Whether this computer can run the installer itself, close the program and open it again: Windows. */
     public boolean canInstall() {
-        return InstallerLaunch.isSupported();
+        return os == Os.WINDOWS;
+    }
+
+    /**
+     * Whether this computer can at least be handed the downloaded installer to open: Linux and macOS. There
+     * the person finishes the installation - the package installer asks for a password, a disk image waits
+     * for the program to be dragged - and starts the program again.
+     */
+    public boolean canOpen() {
+        return os == Os.LINUX || os == Os.MAC;
+    }
+
+    /**
+     * Hands a downloaded installer to the system to open, the way double-clicking it would. The program
+     * keeps running.
+     */
+    public void open(Path installer) throws IOException {
+        if (!canOpen()) {
+            throw new IOException("Opening an installer is for Linux and macOS; on Windows it is installed");
+        }
+        if (!Files.isRegularFile(installer)) {
+            throw new IOException("The installer is not there: " + installer);
+        }
+        opener.start(openCommand(os, installer));
+    }
+
+    static List<String> openCommand(Os os, Path installer) {
+        return List.of(os == Os.MAC ? "open" : "xdg-open", installer.toAbsolutePath().toString());
     }
 
     /**
@@ -235,6 +266,11 @@ public final class AppUpdater {
         private InstallerLaunch launch = new InstallerLaunch();
         private Supplier<List<String>> alongside = InstallerLaunch::runningAlongside;
         private Optional<String> publicKey = Optional.empty();
+        private Os os = Os.current();
+        private InstallerLaunch.Starter opener = command -> new ProcessBuilder(command)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
         private SignatureFetch signatures = address -> {
             Http.Text answer = Http.get(address, Map.of("Accept", "application/octet-stream"));
             if (answer.status() != 200) {
@@ -313,6 +349,13 @@ public final class AppUpdater {
                 throw new IllegalArgumentException("Not a public key from ReleaseSignature keygen");
             }
             this.publicKey = Optional.of(publicKey.strip());
+            return this;
+        }
+
+        /** As if run on another system, with another way to open an installer there; for a test. */
+        public Builder system(Os os, InstallerLaunch.Starter opener) {
+            this.os = Objects.requireNonNull(os);
+            this.opener = Objects.requireNonNull(opener);
             return this;
         }
 

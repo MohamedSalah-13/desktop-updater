@@ -61,7 +61,7 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.3.0</version>
+    <version>v0.4.0</version>
 </dependency>
 ```
 
@@ -237,6 +237,37 @@ Tell the user what turning it on commits them to, before they do:
 - The program's name is part of what is signed, so `AppName` and `AppUpdater.builder("...")` must be the
   same text. One key can serve several programs.
 - A runtime image built with JDK 21 or older needs `jdk.crypto.ec` for the signature check.
+
+## Linux and macOS
+
+A program published for more than Windows names each system's file; `{arch}` stands for the processor the
+copy runs on (`x64` or `arm64`):
+
+```java
+ReleaseSource.github("owner/app")
+        .asset("*-setup.exe")                          // Windows, and any system not named
+        .assetFor(Os.LINUX, "*-linux-{arch}.deb")
+        .assetFor(Os.MAC, "*-macos-{arch}.dmg")
+```
+
+Take the patterns from what the packaging really produces (the packaging script and the workflow that
+builds the other systems), not from this example - the name, the processor's spelling and the order differ
+from project to project.
+
+- A release without a file for the copy's system and processor is passed over on that system. That is the
+  point: the Windows installer usually goes up first and the others are added by a workflow minutes later,
+  or not at all when the workflow fails.
+- Windows installs and reopens as before. On Linux and macOS the button is "Download the installer": the
+  file is downloaded, checked, and opened with the system's own handler (`xdg-open` / `open`); the person
+  finishes the installation and starts the program again. The program does not close itself, so `onExit`
+  is not called there. Downloading ahead is Windows only.
+- In the project's `release.ps1`, `$release.OtherAssets = @('*-linux-x64.deb', '*-macos-arm64.dmg', ...)`
+  makes `-VerifyOnly` say whether a release carries them. The script itself publishes the Windows
+  installer only.
+- A program that uses `signedBy` needs the other systems' installers signed too (`<file>.sig` beside each),
+  or copies there are offered nothing.
+- This path has not been seen working on a real Linux or macOS machine yet. Say so to the user, and if you
+  can run the program there, try an update before calling it done.
 
 ## Variants
 
