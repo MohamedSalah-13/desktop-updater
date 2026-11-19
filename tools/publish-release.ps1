@@ -345,6 +345,15 @@ try {
         $buildPath = Join-Path $ProjectDir $BuildScript
         if (-not (Test-Path -LiteralPath $buildPath)) { throw "The packaging script $buildPath is not there." }
         Write-Step "2. Building the installer ($BuildScript)"
+        # jpackage leaves the installer and the program it packs read-only, and "mvn clean" cannot delete
+        # a read-only file on Windows: a build after an earlier one would stop before it begins.
+        if (-not $StagingDir) { $StagingDir = Join-Path $ProjectDir 'target\release' }
+        foreach ($folder in @((Join-Path $ProjectDir $InstallerDir), $StagingDir)) {
+            if (Test-Path -LiteralPath $folder) {
+                Get-ChildItem -LiteralPath $folder -Recurse -File -Force |
+                    Where-Object { $_.IsReadOnly } | ForEach-Object { $_.IsReadOnly = $false }
+            }
+        }
         $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $buildPath) + $BuildArguments
         $build = Invoke-Native -Exe 'powershell.exe' -Arguments $arguments
         $build.Output | ForEach-Object { Write-Host "   $_" }
@@ -374,8 +383,7 @@ try {
     New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
     $staged = Join-Path $StagingDir $asset
     Copy-Item -LiteralPath $installer.FullName -Destination $staged -Force
-    # jpackage leaves its installer read-only and the copy inherits that; "mvn clean" cannot delete a
-    # read-only file on Windows, so the next release's build would stop at this one.
+    # The copy inherits the installer's read-only flag; cleared so that the folder can be emptied by hand.
     Set-ItemProperty -LiteralPath $staged -Name IsReadOnly -Value $false
     $sha256 = (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Ok ("{0} -> {1} ({2:N1} MB)" -f $installer.Name, $staged, ($installer.Length / 1MB))
