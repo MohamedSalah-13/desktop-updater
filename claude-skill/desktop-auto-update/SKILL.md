@@ -51,6 +51,14 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 
 ```xml
 <repositories>
+    <!-- Named so that it is asked before JitPack; see the note under the snippet. -->
+    <repository>
+        <id>central</id>
+        <url>https://repo.maven.apache.org/maven2</url>
+        <snapshots>
+            <enabled>false</enabled>
+        </snapshots>
+    </repository>
     <!-- Serves desktop-updater straight from its GitHub tags. -->
     <repository>
         <id>jitpack.io</id>
@@ -64,6 +72,12 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
     <version>v0.4.0</version>
 </dependency>
 ```
+
+Keep `central` in the snippet, first. A project's own repositories are asked before the inherited Maven Central, so
+with `jitpack.io` alone Maven asks JitPack first for every library of the program. JitPack answers some coordinates
+it does not have (`xml-apis:xml-apis-ext`, for one) with an empty file instead of 404; Maven keeps the empty jar and
+the build fails with `zip file is empty` wherever the local repository is empty - a CI runner first of all. If the
+program's `pom.xml` already has a `<repositories>` block, add what is missing rather than a second block.
 
 The library has no dependencies of its own and uses the program's JavaFX. With a `module-info.java`, add
 `requires com.hamza.updater;` - the library is a real module, so `javafx:jlink` accepts it.
