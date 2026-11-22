@@ -40,6 +40,13 @@ on:
         required: false
         type: string
         default: ''
+      desktop-updater-ref:
+        description: >-
+          The desktop-updater commit to check out beside the build, for a packaging script that imports
+          tools/Packaging.psm1: the same commit as in the caller's uses. Empty checks nothing out.
+        required: false
+        type: string
+        default: ''
       java-version:
         description: The JDK that runs Maven and jpackage, and so the runtime the installers carry.
         required: false
@@ -91,6 +98,16 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
+      # desktop-updater itself, for packaging scripts that import tools/Packaging.psm1. It goes inside
+      # the workspace, where checkout writes, and after the program's own checkout, which would clean it
+      # away. A called workflow cannot read the commit it was called at, so the caller names it.
+      - uses: actions/checkout@v7
+        if: inputs.desktop-updater-ref != ''
+        with:
+          repository: MohamedSalah-13/desktop-updater
+          ref: ${{ inputs.desktop-updater-ref }}
+          path: .desktop-updater
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -109,6 +126,7 @@ jobs:
         env:
           SCRIPT: ${{ inputs.script }}
           VIRTUAL_SCREEN: ${{ inputs.virtual-screen }}
+          DESKTOP_UPDATER_HOME: ${{ github.workspace }}/.desktop-updater
         run: |
           if [ "$RUNNER_OS" = Linux ] && [ "$VIRTUAL_SCREEN" = true ]; then
             xvfb-run -a pwsh "./$SCRIPT"

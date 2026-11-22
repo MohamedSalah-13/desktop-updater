@@ -29,3 +29,25 @@ jobs:
 
       - name: Build and run tests
         run: mvn -B -ntp verify
+
+  packaging:
+    name: Packaging module (${{ matrix.os }})
+    # tools/Packaging.psm1 runs in the programs' packaging scripts on all three systems, and on Windows
+    # in Windows PowerShell 5.1 as well as in PowerShell 7.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tests in PowerShell 7
+        shell: pwsh
+        run: ./tools/tests/Packaging.Tests.ps1
+
+      - name: Tests in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./tools/tests/Packaging.Tests.ps1

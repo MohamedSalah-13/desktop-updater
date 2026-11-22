@@ -167,6 +167,39 @@ GitHub، وهو تعليق HTML لا يظهر في الصفحة:
 «ما الجديد» يُؤخذ من `docs/release-notes/v<version>.md` إن وُجد، وإلا من قائمة الـ commits التي يولّدها
 GitHub. يحتاج `git` و `gh`، ويعمل على Windows PowerShell 5.1.
 
+## خطوات التحزيم المشتركة
+
+سكربت التحزيم في كل برنامج يكرر الخطوات نفسها، وكل برنامج كتبها بطريقته. الوحدة `tools/Packaging.psm1` تكتبها
+مرة واحدة، ويبقى في سكربت البرنامج ما يخصه وحده: اسمه، ووحداته، وصنفه الرئيسي، ومشغّلاته، وخيارات Java،
+ورمز الترقية. تُوجد كما يُوجد سكربت الإصدار: نسخة desktop-updater بجوار المستودع، أو المسار في
+`DESKTOP_UPDATER_HOME`.
+
+```powershell
+$updaterHome = $env:DESKTOP_UPDATER_HOME
+if (-not $updaterHome) {
+    $repository = & git -C $PSScriptRoot rev-parse --show-toplevel 2>$null
+    $updaterHome = Join-Path (Split-Path -Parent $repository) 'desktop-updater'
+}
+Import-Module (Join-Path $updaterHome 'tools/Packaging.psm1') -Force
+```
+
+| الدالة | ما تفعله |
+| --- | --- |
+| `Find-JPackage -MinimumVersion 25` | تجد JDK فيه jpackage في `JAVA_HOME` أو على PATH أو في `~/.jdks`، وترفض الأقدم |
+| `Invoke-MavenBuild -Pom … -Arguments …` | تشغّل Maven (الـ wrapper إن وُجد)، بعد إزالة علامة «للقراءة فقط» من `target` |
+| `Get-PomVersion -Pom …` | الإصدار بلا `-SNAPSHOT`، والإصدار الذي يُعطى لـ jpackage (macOS يرفض 0.x فيصير 1.x) |
+| `New-JPackageInput -Path … -Item …` | مجلد `--input` جديد لا فيه إلا ما سُمّي |
+| `Resolve-PackageType` و `Get-IconExtension` | نوع المثبّت وملف الأيقونة لكل نظام |
+| `Find-WiX` | تجد WiX 3 لـ exe و msi وتضعه على PATH |
+| `Get-WinInstallerArgument` | خيارات مثبّت Windows بترتيب واحد، مع فحص رمز الترقية |
+| `Rename-PlatformPackage` | الاسم المنشور على Linux و macOS: `<الاسم>-<الإصدار>-<النظام>-<المعالج>.<النوع>` |
+| `Invoke-Native` | تشغّل برنامجًا وتتوقف إن خرج بغير 0 |
+
+تعمل على Windows PowerShell 5.1 وعلى PowerShell 7 في الأنظمة الثلاثة، واختبارها
+`tools/tests/Packaging.Tests.ps1` يعمل في CI على الثلاثة. الـ workflow المشترك لـ Linux و macOS (أدناه) يجلب
+desktop-updater بجوار البناء حين يُعطى `desktop-updater-ref`: الـ commit نفسه المكتوب في `uses:`، لأن الـ workflow
+المستدعى لا يعرف الـ commit الذي استُدعي منه.
+
 ## Linux و macOS
 
 برنامج يُنشر لأكثر من نظام يسمّي ملف كل نظام، و`{arch}` تُستبدل بمعالج الجهاز (`x64` أو `arm64`):
@@ -226,7 +259,8 @@ jobs:
 - **`tag` فارغ** في طلبات الدمج: تُبنى الملفات وتُحفظ مع التشغيل فقط.
 - **اختيارية:** `java-version` (الافتراضي `25`)، و `apt-packages` (الافتراضي `fakeroot`)، و `virtual-screen`
   لاختبارات JavaFX على Linux مع `xvfb libgtk-3-0` في `apt-packages`، و `test-reports` ليُحفظ مجلد التقارير عند
-  الفشل، و `artifact-name`.
+  الفشل، و `artifact-name`، و `desktop-updater-ref` لسكربت يستورد `tools/Packaging.psm1` (الـ commit نفسه الذي في
+  `uses:`).
 - **ثبّت الاستدعاء على commit لا على `main`**، فلا يتغيّر بناء أي مشروع دون طلب دمج فيه.
 
 ## خيارات
