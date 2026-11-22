@@ -197,7 +197,8 @@ Import-Module (Join-Path $updaterHome 'tools/Packaging.psm1') -Force
 
 تعمل على Windows PowerShell 5.1 وعلى PowerShell 7 في الأنظمة الثلاثة، واختبارها
 `tools/tests/Packaging.Tests.ps1` يعمل في CI على الثلاثة. الـ workflow المشترك لـ Linux و macOS (أدناه) يجلب
-desktop-updater من الـ commit نفسه الذي استُدعي منه، فلا يحتاج المشروع شيئًا آخر في CI.
+desktop-updater بجوار البناء حين يُعطى `desktop-updater-ref`: الـ commit نفسه المكتوب في `uses:`، لأن الـ workflow
+المستدعى لا يعرف الـ commit الذي استُدعي منه.
 
 ## Linux و macOS
 
@@ -258,7 +259,8 @@ jobs:
 - **`tag` فارغ** في طلبات الدمج: تُبنى الملفات وتُحفظ مع التشغيل فقط.
 - **اختيارية:** `java-version` (الافتراضي `25`)، و `apt-packages` (الافتراضي `fakeroot`)، و `virtual-screen`
   لاختبارات JavaFX على Linux مع `xvfb libgtk-3-0` في `apt-packages`، و `test-reports` ليُحفظ مجلد التقارير عند
-  الفشل، و `artifact-name`.
+  الفشل، و `artifact-name`، و `desktop-updater-ref` لسكربت يستورد `tools/Packaging.psm1` (الـ commit نفسه الذي في
+  `uses:`).
 - **ثبّت الاستدعاء على commit لا على `main`**، فلا يتغيّر بناء أي مشروع دون طلب دمج فيه.
 
 ## خيارات
