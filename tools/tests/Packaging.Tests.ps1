@@ -19,7 +19,11 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('packaging-tests-' + [guid]
 [void](New-Item -ItemType Directory -Path $root)
 
 function Test-Case {
-    param([string]$Name, [scriptblock]$Body)
+    param([string]$Name, [scriptblock]$Body, [string]$SkipBecause)
+    if ($SkipBecause) {
+        Write-Host "skip  $Name ($SkipBecause)"
+        return
+    }
     try {
         & $Body
         $script:passed++
@@ -227,6 +231,30 @@ try {
             Assert-Equal ([System.IO.Path]::GetFullPath($old)) (Find-JPackage).JdkHome 'any: JAVA_HOME first'
             Assert-Throws { Find-JPackage -MinimumVersion 99 } 'JDK 99 or later was not found'
             Assert-Throws { Find-JPackage -MinimumVersion 99 } '(21.0.1)'
+        } finally {
+            $env:PATH = $savedPath
+            $env:JAVA_HOME = $savedHome
+        }
+    }
+
+    $linkSkip = ''
+    if ($windows) { $linkSkip = 'Windows needs an administrator or developer mode for symbolic links' }
+    Test-Case 'a jpackage on PATH that is a link is taken from the JDK the link ends in' -SkipBecause $linkSkip {
+        $savedPath = $env:PATH
+        $savedHome = $env:JAVA_HOME
+        try {
+            # /usr/bin/jpackage -> /etc/alternatives/jpackage -> the JDK's own, as on Linux.
+            $jdk = New-FakeJdk 'linked/jvm/jdk-25' '25.0.5'
+            $alternatives = New-TestFolder 'linked/alternatives'
+            $prefix = New-TestFolder 'linked/usr/bin'
+            $middle = Join-Path $alternatives 'jpackage'
+            [void](New-Item -ItemType SymbolicLink -Path $middle -Target (Join-Path $jdk 'bin/jpackage'))
+            [void](New-Item -ItemType SymbolicLink -Path (Join-Path $prefix 'jpackage') -Target $middle)
+            $env:JAVA_HOME = ''
+            $env:PATH = $prefix + [System.IO.Path]::PathSeparator + $env:PATH
+
+            $found = Find-JPackage -MinimumVersion 25
+            Assert-Equal ([System.IO.Path]::GetFullPath($jdk)) $found.JdkHome 'the JDK, not the link prefix'
         } finally {
             $env:PATH = $savedPath
             $env:JAVA_HOME = $savedHome

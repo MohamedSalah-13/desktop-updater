@@ -89,13 +89,34 @@ function Get-JdkVersion {
     return $null
 }
 
+function Resolve-LinkTarget {
+    <#
+    .SYNOPSIS
+        The file a symbolic link finally points at, or the path itself when it is no link.
+
+    .DESCRIPTION
+        On Linux the java on PATH is usually /usr/bin/java -> /etc/alternatives/java -> the JDK's, and on
+        macOS a Homebrew link: the JDK is where the chain ends, not two folders above the link. Windows
+        PowerShell 5.1 cannot follow links (.NET Framework has no ResolveLinkTarget), and there they are rare.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.PSObject.Methods['ResolveLinkTarget']) {
+        $target = $item.ResolveLinkTarget($true)
+        if ($target) { return $target.FullName }
+    }
+    return $Path
+}
+
 function Find-JPackage {
     <#
     .SYNOPSIS
         Finds a JDK with jpackage, and returns its jpackage, its folder and its version.
 
     .DESCRIPTION
-        Looks in JAVA_HOME, beside the jpackage and the java on PATH, then in ~/.jdks (newest name first),
+        Looks in JAVA_HOME, beside the jpackage and the java on PATH (where their links end), then in
+        ~/.jdks (newest name first),
         and takes the first JDK that meets -MinimumVersion or -ExactVersion. The runtime an installer
         carries is the JDK its jpackage comes from, so a script names the version it needs rather than
         taking whatever is on PATH.
@@ -112,7 +133,7 @@ function Find-JPackage {
     if ($env:JAVA_HOME) { $homes.Add($env:JAVA_HOME) }
     foreach ($name in @('jpackage', 'java')) {
         $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($command) { $homes.Add((Split-Path -Parent (Split-Path -Parent $command.Source))) }
+        if ($command) { $homes.Add((Split-Path -Parent (Split-Path -Parent (Resolve-LinkTarget -Path $command.Source)))) }
     }
     $jdks = Join-Path $HOME '.jdks'
     if (Test-Path -LiteralPath $jdks) {
@@ -396,6 +417,6 @@ function Rename-PlatformPackage {
 }
 
 Export-ModuleMember -Function Get-PackagingPlatform, Get-PackagingArch, Get-IconExtension, Resolve-PackageType,
-    Get-JdkVersion, Find-JPackage, Invoke-Native, Clear-ReadOnly, Find-MavenCommand, Invoke-MavenBuild,
+    Get-JdkVersion, Resolve-LinkTarget, Find-JPackage, Invoke-Native, Clear-ReadOnly, Find-MavenCommand, Invoke-MavenBuild,
     Get-PomVersion, ConvertTo-PackageVersion, New-JPackageInput, Find-WiX, Get-WinInstallerArgument,
     Rename-PlatformPackage
