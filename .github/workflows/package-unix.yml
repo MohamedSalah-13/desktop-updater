@@ -91,6 +91,15 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
 
+      # desktop-updater itself, at the commit this workflow was called at, for packaging scripts that
+      # import tools/Packaging.psm1. It goes inside the workspace, where checkout writes, and after the
+      # program's own checkout, which would clean it away.
+      - uses: actions/checkout@v7
+        with:
+          repository: MohamedSalah-13/desktop-updater
+          ref: ${{ github.job_workflow_sha }}
+          path: .desktop-updater
+
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -109,6 +118,7 @@ jobs:
         env:
           SCRIPT: ${{ inputs.script }}
           VIRTUAL_SCREEN: ${{ inputs.virtual-screen }}
+          DESKTOP_UPDATER_HOME: ${{ github.workspace }}/.desktop-updater
         run: |
           if [ "$RUNNER_OS" = Linux ] && [ "$VIRTUAL_SCREEN" = true ]; then
             xvfb-run -a pwsh "./$SCRIPT"
