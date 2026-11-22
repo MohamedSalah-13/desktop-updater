@@ -1,0 +1,142 @@
+name: Packages (Linux, macOS)
+
+# Builds a program's Linux and macOS installers with the program's own packaging script, one job per
+# system, and adds them to a release when a tag is given. jpackage only builds for the system it runs
+# on, so these files are made here; the Windows installer is still published from the developer's
+# computer by tools/publish-release.ps1, and publishing that release is what usually starts the caller.
+#
+# A program calls it from a workflow of its own, which keeps its triggers and its concurrency group:
+#
+#   jobs:
+#     packages:
+#       name: Packages
+#       uses: MohamedSalah-13/desktop-updater/.github/workflows/package-unix.yml@<commit>
+#       permissions:
+#         contents: write # adds the installers to the release
+#       with:
+#         script: packaging/build-installer.ps1
+#         files: target/installer/MyProgram-*
+#         tag: ${{ github.event.release.tag_name || inputs.tag }}
+#
+# The script names its own files (MyProgram-<version>-linux-x64.deb and so on): the program's updater
+# looks for them by name, so nothing here renames them.
+on:
+  workflow_call:
+    inputs:
+      script:
+        description: The packaging script, as a path from the repository's root. It is run with pwsh.
+        required: true
+        type: string
+      files:
+        description: >-
+          The files the script makes, as a path pattern from the repository's root. They are kept with
+          the run and, with a tag, added to the release.
+        required: true
+        type: string
+      tag:
+        description: >-
+          The release to build and add the files to. Empty builds the commit that started the run and
+          keeps the files with the run only.
+        required: false
+        type: string
+        default: ''
+      java-version:
+        description: The JDK that runs Maven and jpackage, and so the runtime the installers carry.
+        required: false
+        type: string
+        default: '25'
+      apt-packages:
+        description: Ubuntu packages installed before the build. jpackage needs fakeroot for a .deb.
+        required: false
+        type: string
+        default: fakeroot
+      virtual-screen:
+        description: >-
+          Runs the script under xvfb-run on Linux, for tests that start JavaFX. apt-packages then needs
+          xvfb, and libgtk-3-0 for JavaFX itself.
+        required: false
+        type: boolean
+        default: false
+      test-reports:
+        description: Where the script's test reports are, kept when a job fails. Empty keeps none.
+        required: false
+        type: string
+        default: ''
+      artifact-name:
+        description: The start of the name the files are kept under with the run; the system is added.
+        required: false
+        type: string
+        default: installer
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: write # adds the installers to the release; the caller has to grant it too
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (.deb)
+            os: ubuntu-latest
+          - name: macOS Apple Silicon (.dmg)
+            os: macos-latest
+          - name: macOS Intel (.dmg)
+            os: macos-15-intel
+    steps:
+      # The caller's repository: in a called workflow, github.repository is the caller's.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+          cache: maven
+
+      # Inputs reach the shell through the environment, never written into the command itself.
+      - name: Install what the build needs
+        if: runner.os == 'Linux' && inputs.apt-packages != ''
+        env:
+          PACKAGES: ${{ inputs.apt-packages }}
+        run: sudo apt-get update && sudo apt-get install -y $PACKAGES
+
+      - name: Build the installer
+        shell: bash
+        env:
+          SCRIPT: ${{ inputs.script }}
+          VIRTUAL_SCREEN: ${{ inputs.virtual-screen }}
+        run: |
+          if [ "$RUNNER_OS" = Linux ] && [ "$VIRTUAL_SCREEN" = true ]; then
+            xvfb-run -a pwsh "./$SCRIPT"
+          else
+            pwsh "./$SCRIPT"
+          fi
+
+      - name: Keep the installer with this run
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}-${{ matrix.os }}
+          path: ${{ inputs.files }}
+          if-no-files-found: error
+
+      - name: Upload test reports
+        if: failure() && inputs.test-reports != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: ${{ inputs.test-reports }}
+          if-no-files-found: ignore
+
+      - name: Add the installer to the release
+        if: inputs.tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          FILES: ${{ inputs.files }}
+        # $FILES is left unquoted on purpose: the shell expands the pattern into the files it names.
+        run: gh release upload "$TAG" $FILES --clobber --repo "$GITHUB_REPOSITORY"

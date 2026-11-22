@@ -191,6 +191,44 @@ ReleaseSource.github("owner/app")
 
 لم يُجرَّب هذا المسار على جهاز Linux أو macOS حقيقي بعد؛ جُرّب منطقه بالاختبارات وبمحاكاة النظام على Windows.
 
+### بناء ملفات Linux و macOS في GitHub Actions
+
+jpackage يبني لنظامه فقط، فملفات Linux و macOS تُبنى على أجهزة GitHub. الـ workflow المشترك
+`.github/workflows/package-unix.yml` يشغّل سكربت التحزيم الخاص بالمشروع على ثلاثة أجهزة: Linux، و macOS
+بمعالج Apple، و macOS بمعالج Intel. ثم يحفظ الملفات مع التشغيل، ويضيفها إلى الإصدار إن أُعطي وسمًا.
+المشروع يستدعيه من workflow خاص به يحتفظ بمتى يعمل:
+
+```yaml
+on:
+  release:
+    types: [published]   # نشر مثبّت Windows بسكربت الإصدار يبدأ هذا
+  pull_request:
+    paths: [packaging/**, pom.xml, .github/workflows/packages.yml]
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: false
+        default: ''
+
+jobs:
+  packages:
+    name: Packages
+    uses: MohamedSalah-13/desktop-updater/.github/workflows/package-unix.yml@<commit>
+    permissions:
+      contents: write
+    with:
+      script: packaging/build-installer.ps1
+      files: target/installer/MyProgram-*
+      tag: ${{ github.event.release.tag_name || inputs.tag }}
+```
+
+- **`script` و `files` إلزاميان.** السكربت يُشغَّل بـ `pwsh` ويسمّي ملفاته بنفسه، فالبرنامج يبحث عنها بأسمائها.
+- **`tag` فارغ** في طلبات الدمج: تُبنى الملفات وتُحفظ مع التشغيل فقط.
+- **اختيارية:** `java-version` (الافتراضي `25`)، و `apt-packages` (الافتراضي `fakeroot`)، و `virtual-screen`
+  لاختبارات JavaFX على Linux مع `xvfb libgtk-3-0` في `apt-packages`، و `test-reports` ليُحفظ مجلد التقارير عند
+  الفشل، و `artifact-name`.
+- **ثبّت الاستدعاء على commit لا على `main`**، فلا يتغيّر بناء أي مشروع دون طلب دمج فيه.
+
 ## خيارات
 
 | الحاجة | الطريقة |
