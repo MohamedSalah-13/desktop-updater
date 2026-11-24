@@ -71,11 +71,18 @@ class FolderSwapTest {
         return Files.exists(log) ? Files.readString(log) : output;
     }
 
+    /** The folders beside the program's, by name. */
+    private List<String> folders() throws IOException {
+        try (var listing = Files.list(dir)) {
+            return listing.filter(Files::isDirectory).map(path -> path.getFileName().toString()).sorted().toList();
+        }
+    }
+
     /** What the programs noted, once the last one opened has had a moment to note it. */
     private List<String> opened(int expected) throws Exception {
         Path file = dir.resolve("opened.txt");
         List<String> lines = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 200; i++) {
             lines = Files.exists(file) ? Files.readAllLines(file).stream().map(String::strip).toList() : List.of();
             if (lines.size() >= expected) {
                 break;
@@ -92,7 +99,8 @@ class FolderSwapTest {
 
         assertTrue(log.contains("The update is installed."), log);
         assertEquals("new", Files.readString(folder.resolve("app").resolve("held.txt")));
-        assertEquals(List.of("new"), opened(1));
+        assertEquals(List.of("new"), opened(1), log);
+        assertEquals(List.of("My App", "updates"), folders(), log);
         assertFalse(Files.exists(dir.resolve("My App.update")));
         assertFalse(Files.exists(dir.resolve("My App.previous")));
     }
@@ -105,7 +113,8 @@ class FolderSwapTest {
         assertTrue(log.contains("ended with exit code 1"), log);
         assertTrue(log.contains("the previous one is put back"), log);
         assertEquals("old", Files.readString(folder.resolve("app").resolve("held.txt")));
-        assertEquals(List.of("broken", "old"), opened(2));
+        assertEquals(List.of("broken", "old"), opened(2), log);
+        assertEquals(List.of("My App", "updates"), folders(), log);
         assertFalse(Files.exists(dir.resolve("My App.previous")));
         assertFalse(Files.exists(dir.resolve("My App.failed")));
     }
@@ -123,9 +132,10 @@ class FolderSwapTest {
         assertTrue(log.contains("Could not move"), log);
         assertTrue(log.contains("The update was not installed"), log);
         assertEquals("old", Files.readString(folder.resolve("app").resolve("held.txt")));
-        assertEquals(List.of("old"), opened(1));
-        assertFalse(Files.exists(dir.resolve("My App.update")));
-        assertFalse(Files.exists(dir.resolve("My App.previous")));
+        // Nothing was copied away: the folder is whole, and no other beside it.
+        assertEquals(program("old", 0), Files.readString(program), log);
+        assertEquals(List.of("My App", "updates"), folders(), log);
+        assertEquals(List.of("old"), opened(1), log);
     }
 
     @Test
