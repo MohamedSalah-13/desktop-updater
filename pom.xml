@@ -7,7 +7,7 @@
     <!-- The coordinates JitPack serves the library under: com.github.<user>:<repository>:<tag>. -->
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>0.4.0</version>
+    <version>0.5.0</version>
     <packaging>jar</packaging>
     <name>Desktop Updater</name>
     <description>Update check, download and install for JavaFX desktop programs packaged with jpackage.</description>

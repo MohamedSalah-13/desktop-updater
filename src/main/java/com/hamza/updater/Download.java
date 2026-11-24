@@ -201,8 +201,11 @@ public final class Download {
         return name;
     }
 
-    /** Windows, Linux and macOS installers, by the end of their names. */
-    static final List<String> INSTALLERS = List.of("exe", "msi", "deb", "rpm", "dmg", "pkg");
+    /**
+     * Windows, Linux and macOS installers, by the end of their names, and a zip of a program's folder
+     * ({@link InstallerKind#ZIP}).
+     */
+    static final List<String> INSTALLERS = List.of("exe", "msi", "deb", "rpm", "dmg", "pkg", "zip");
 
     /**
      * Removes the installers left in the folder. Called once the program is up to date: the installer that
