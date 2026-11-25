@@ -150,6 +150,7 @@ class DownloadTest {
         assertEquals("evil.exe", Download.safeName("../../evil.exe"));
         assertEquals("Git Backup-0.2.0.msi", Download.safeName("Git Backup-0.2.0.msi"));
         assertEquals("a_b.exe", Download.safeName("a:b.exe"));
+        assertEquals("App-2.5.0-windows-x64.zip", Download.safeName("App-2.5.0-windows-x64.zip"));
         assertThrows(IOException.class, () -> Download.safeName("script.ps1"));
         assertThrows(IOException.class, () -> Download.safeName(".exe"));
         assertThrows(IOException.class, () -> Download.safeName(""));

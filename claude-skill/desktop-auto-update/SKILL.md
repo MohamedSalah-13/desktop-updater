@@ -69,7 +69,7 @@ In `pom.xml` (use the newest tag of the library - `gh api repos/MohamedSalah-13/
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.4.0</version>
+    <version>v0.5.0</version>
 </dependency>
 ```
 
@@ -292,6 +292,14 @@ from project to project.
   `InstallerKind.JPACKAGE`, passes `/passive /norestart`, which only a jpackage/MSI installer understands.
 - **Any other installer:** `InstallerKind.WIZARD` shows the installer's own pages;
   `InstallerKind.withArguments(...)` passes your own.
+- **No installer, a zipped folder:** a program people unzip and run in place (a `jpackage --type app-image`
+  folder published as a zip) uses `.installer(InstallerKind.ZIP)` with `.asset("*-windows-x64.zip")`; no WiX
+  needed. `install` unpacks the zip beside the program's folder while the program runs - so a folder it may
+  not write beside, or a zip without the program's launcher at its top or in one folder there, fails while
+  the program can still say so - and after it closes the folders are renamed into place and the program
+  reopens; a new version that ends with an error within 30 seconds gets the old folder back. The folder is
+  the one the relaunched program (by default the launcher that started this copy) lives in, so a program
+  that passes `relaunch(null)` cannot use it. Its data must live outside that folder.
 - **No JavaFX window wanted:** use `AppUpdater` alone - `check()`, `download(...)`, `install(...)` - from a
   background thread, and close the program after `install`.
 
