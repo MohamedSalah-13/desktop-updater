@@ -74,6 +74,10 @@ Older releases: [docs/release-notes](docs/release-notes).
 
 ## Getting Started
 
+These steps are for programs that have permission to use the library: the [license](LICENSE) does not allow
+using, copying or distributing it without prior written permission from the copyright holder. To ask for
+permission, open an issue in this repository.
+
 ### Add the dependency
 
 `pom.xml`:
