@@ -35,6 +35,11 @@
 
 ## ما الجديد
 
+### v0.6.1
+
+- `Announcement.update()` يفتح النافذة بعد انتهاء حدث الزر بدل الانتظار داخله. الضغط عبر UI Automation (قارئ
+  الشاشة أو أداة اختبار) كان يغلق النافذة فورًا ويبدأ التنزيل دون سؤال.
+
 ### v0.6.0
 
 - **إعلان الإصدار بطريقة البرنامج.** `updates.onAvailable(found -> ...)` يسلّم الإصدار الذي يجده البرنامج بنفسه
@@ -102,7 +107,7 @@
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.6.0</version>
+    <version>v0.6.1</version>
 </dependency>
 ```
 

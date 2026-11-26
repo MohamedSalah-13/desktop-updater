@@ -122,8 +122,11 @@ class AnnouncementTest {
         Announcement announcement = found.poll(10, TimeUnit.SECONDS);
         assertNotNull(announcement);
 
-        // The window waits for an answer, so it is opened without waiting for it here.
-        Platform.runLater(announcement::update);
+        // Called from the button's action, on the JavaFX thread: it must not wait there for an answer.
+        assertTrue(onFx(() -> {
+            announcement.update();
+            return true;
+        }), "update() returns before the window is answered");
 
         assertTrue(waitFor(AnnouncementTest::windowShown), "the window opens when asked for");
     }

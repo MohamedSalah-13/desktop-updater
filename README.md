@@ -38,6 +38,12 @@ instead of each project carrying its own update code.
 
 ## What's New
 
+### v0.6.1
+
+- `Announcement.update()` opens the window once the button's action is over, instead of waiting inside it.
+  A press through UI Automation (a screen reader, a test tool) used to close the window at once and start
+  the download unasked.
+
 ### v0.6.0
 
 - **Announce a release your own way.** `updates.onAvailable(found -> ...)` hands a release the program found
@@ -108,7 +114,7 @@ permission, open an issue in this repository.
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.6.0</version>
+    <version>v0.6.1</version>
 </dependency>
 ```
 
