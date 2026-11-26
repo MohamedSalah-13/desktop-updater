@@ -38,6 +38,13 @@ instead of each project carrying its own update code.
 
 ## What's New
 
+### v0.6.0
+
+- **Announce a release your own way.** `updates.onAvailable(found -> ...)` hands a release the program found
+  on its own to the program instead of opening the window, so it can show a card in a side bar or a badge on
+  a menu. `found.update()` opens the update window for that release when the person asks, and
+  `found.openPage()` opens its page. A required release still opens the window as well.
+
 ### v0.5.0
 
 - **Programs shipped as a zip folder.** `InstallerKind.ZIP` updates a program the customer unzips and runs
@@ -101,7 +108,7 @@ permission, open an issue in this repository.
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.5.0</version>
+    <version>v0.6.0</version>
 </dependency>
 ```
 
@@ -170,6 +177,7 @@ mvn verify
 | Refuse to run an old copy when an update is required | `updates.enforceRequired(true)` |
 | An immediate silent check (for example when the server rejects the version) | `updates.checkQuietly()` |
 | Download the release in the background, then show «ready to install» | `updates.downloadInBackground(true)` |
+| Announce a release in the program's own way (a card, a badge) instead of the window | `updates.onAvailable(found -> ...)` |
 | Accept only releases signed with your key | `AppUpdater.builder(...).signedBy("...")` |
 | No JavaFX window | `updater.check()`, then `download(...)`, then `install(...)` from a background thread |
 
@@ -216,6 +224,29 @@ With `updates.downloadInBackground(true)` the release the program finds is downl
 asked, so they see «Version 2.5 is ready to install» and pressing it installs at once with no wait. A
 release the user skipped is not downloaded, and one whose download did not finish is shown the usual way.
 The option is off by default because it uses the user's connection (tens of megabytes) without asking.
+
+### Announcing a release your own way
+
+A window over the work is not the only way to say a release is out. With `onAvailable` a release the
+program finds on its own goes to the program, which shows it where it likes, and the window opens when the
+person asks for it:
+
+```java
+updates = UpdatePrompt.create(updater, stage)
+        .language("ar")
+        .onAvailable(found -> {
+            card.setText("Version " + found.version() + " is available");
+            updateButton.setOnAction(e -> found.update());   // the usual window, for this release
+            whatsNew.setOnAction(e -> found.openPage());     // the release's page in the browser
+            card.setVisible(true);
+        })
+        .start();
+```
+
+- It is called on the JavaFX thread at every look that finds a release the user did not skip or put off this
+  run. `found` also carries `current()`, `required()`, `ready()` (downloaded ahead), `notes()` and `page()`.
+- A required release is announced and opens the window as well, so nobody misses it.
+- «Check for updates» (`checkNow()`) still answers with the window.
 
 ### Signing releases
 

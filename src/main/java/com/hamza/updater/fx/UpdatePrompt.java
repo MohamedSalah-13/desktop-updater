@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * The window over {@link AppUpdater}: it looks for a release in the background, tells the person when there
@@ -49,6 +50,7 @@ import java.util.concurrent.TimeUnit;
  * <p>A look the program made on its own says nothing unless there is a release, never shows one the person
  * skipped, and asks about a release once a run. A look the person asked for ({@link #checkNow}) always
  * answers. While the program's window is hidden - in the tray - the announcement waits for it to be shown.
+ * A program that announces releases its own way - a card in a side bar - says so with {@link #onAvailable}.
  *
  * <p>Every method is called on the JavaFX thread; the network is never touched on it.
  */
@@ -63,6 +65,7 @@ public final class UpdatePrompt {
     private Runnable exit = UpdatePrompt::closeProgram;
     private boolean enforce;
     private boolean ahead;
+    private Consumer<Announcement> announcer;
 
     private ScheduledExecutorService background;
     private boolean showing;
@@ -127,6 +130,18 @@ public final class UpdatePrompt {
      */
     public UpdatePrompt downloadInBackground(boolean ahead) {
         this.ahead = ahead;
+        return this;
+    }
+
+    /**
+     * Hands a release the program found on its own to the program instead of opening the window, so that
+     * it can announce it its own way - a card in a side bar, a badge - and open the window when the person
+     * asks ({@link Announcement#update}). Called on the JavaFX thread, at every look that finds a release
+     * the person did not skip or put off this run. A required release opens the window as well. A look the
+     * person asked for ({@link #checkNow}) still answers with the window. Call before {@link #start}.
+     */
+    public UpdatePrompt onAvailable(Consumer<Announcement> announcer) {
+        this.announcer = Objects.requireNonNull(announcer);
         return this;
     }
 
@@ -230,7 +245,20 @@ public final class UpdatePrompt {
             }
             return;
         }
+        if (announcer != null) {
+            announcer.accept(new Announcement(this, available, ready));
+            if (!available.required()) {
+                return;
+            }
+        }
         offer(available, ready);
+    }
+
+    /** The window for a release the program announced, when the person asks for it. */
+    void offerFound(CheckResult.Available available, boolean ready) {
+        if (!showing && !checking) {
+            offer(available, ready);
+        }
     }
 
     private void answer(CheckResult result) {
@@ -486,7 +514,7 @@ public final class UpdatePrompt {
     }
 
     /** Opens a web page in the person's browser. HTTPS only: the address came from the release. */
-    private static void open(URI page) {
+    static void open(URI page) {
         if (!"https".equalsIgnoreCase(page.getScheme())) {
             return;
         }
