@@ -3,6 +3,7 @@ package com.hamza.updater.fx;
 import com.hamza.updater.CheckResult;
 import com.hamza.updater.Release;
 import com.hamza.updater.Version;
+import javafx.application.Platform;
 
 import java.net.URI;
 import java.util.Optional;
@@ -71,9 +72,13 @@ public final class Announcement {
      * Opens the update window for this release, with what is new, "Update now", "Later" and "Skip this
      * version": what the window would have shown on its own. Nothing happens while another window of the
      * prompt is open.
+     *
+     * <p>Returns at once: the window opens once the event that asked for it - a button's action - is over.
+     * A window that waits for an answer inside that event is closed at once when the button was pressed
+     * through UI Automation (a screen reader, a test tool), and the download starts unasked.
      */
     public void update() {
-        prompt.offerFound(available, ready);
+        Platform.runLater(() -> prompt.offerFound(available, ready));
     }
 
     /** Opens the release's page in the person's browser. Nothing happens when there is none. */
