@@ -213,6 +213,16 @@ than knowing the switch exists.
 - **Two programs that must match** (client and server): marking a release required does not order the
   updates. Say in the release notes which side updates first; the offer shows them.
 
+## Announcing it the program's own way
+
+A program that would rather not put a window over the work - a card in a side bar like RustDesk's, a badge
+on a menu - passes `.onAvailable(found -> ...)` on the `UpdatePrompt` (v0.6.0+, before `start()`). A release
+the program finds on its own then goes to that consumer on the JavaFX thread instead of opening the window;
+the program shows `found.version()` and calls `found.update()` from its "Update" button (the usual window,
+for that release) and `found.openPage()` for "What's new". A required release still opens the window too,
+and `checkNow()` still answers with the window. Keep the program's own "put away" (a close button) in the
+program: the consumer is called again at every look while the release is on offer.
+
 ## Downloading ahead
 
 `.downloadInBackground(true)` on the `UpdatePrompt` fetches a release the program found on its own before
