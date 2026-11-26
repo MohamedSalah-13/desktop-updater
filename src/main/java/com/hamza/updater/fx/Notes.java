@@ -54,6 +54,8 @@ final class Notes {
         }
         StringBuilder paragraph = new StringBuilder();
         StringBuilder code = null;
+        // The list item a plain line right under it continues: a long item is written on several lines.
+        String item = null;
         for (String raw : markdown.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1)) {
             if (code != null) {
                 if (FENCE.matcher(raw).matches()) {
@@ -66,11 +68,21 @@ final class Notes {
             }
             if (FENCE.matcher(raw).matches()) {
                 paragraph(blocks, paragraph);
+                item = null;
                 code = new StringBuilder();
                 continue;
             }
             String line = entities(TAG.matcher(LINE_BREAK_TAG.matcher(raw).replaceAll(" ")).replaceAll(""));
             Matcher matcher;
+            boolean plain = !line.isBlank() && !RULE.matcher(line).matches() && !HEADING.matcher(line).matches()
+                    && !BULLET.matcher(line).matches() && !NUMBERED.matcher(line).matches() && !QUOTE.matcher(line).matches();
+            if (plain && item != null) {
+                item = item + ' ' + line.strip();
+                Block last = blocks.get(blocks.size() - 1);
+                blocks.set(blocks.size() - 1, new Block(last.kind(), last.level(), last.marker(), spans(item)));
+                continue;
+            }
+            item = null;
             if (line.isBlank()) {
                 paragraph(blocks, paragraph);
             } else if (RULE.matcher(line).matches()) {
@@ -81,16 +93,18 @@ final class Notes {
                 blocks.add(new Block(Kind.HEADING, matcher.group(1).length(), "", spans(matcher.group(2))));
             } else if ((matcher = BULLET.matcher(line)).matches()) {
                 paragraph(blocks, paragraph);
-                String item = matcher.group(2);
+                String text = matcher.group(2);
                 String marker = "•";
-                if (item.matches("^\\[[ xX]]\\s+.*")) {
-                    marker = item.charAt(1) == ' ' ? "☐" : "☑";
-                    item = item.substring(3).stripLeading();
+                if (text.matches("^\\[[ xX]]\\s+.*")) {
+                    marker = text.charAt(1) == ' ' ? "☐" : "☑";
+                    text = text.substring(3).stripLeading();
                 }
-                blocks.add(new Block(Kind.BULLET, depth(matcher.group(1)), marker, spans(item)));
+                blocks.add(new Block(Kind.BULLET, depth(matcher.group(1)), marker, spans(text)));
+                item = text;
             } else if ((matcher = NUMBERED.matcher(line)).matches()) {
                 paragraph(blocks, paragraph);
                 blocks.add(new Block(Kind.NUMBERED, depth(matcher.group(1)), matcher.group(2) + ".", spans(matcher.group(3))));
+                item = matcher.group(3);
             } else if ((matcher = QUOTE.matcher(line)).matches()) {
                 paragraph(blocks, paragraph);
                 blocks.add(new Block(Kind.QUOTE, 0, "", spans(matcher.group(1))));

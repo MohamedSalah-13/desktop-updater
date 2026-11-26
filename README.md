@@ -46,6 +46,8 @@ instead of each project carrying its own update code.
   by another process» and the old version opened again. The script now moves to its own folder first, and
   opens the program in the program's folder. Copies on an older version write the old script: they need one
   update by hand, or a start from another working folder.
+- «What's new»: a line right under a list item continues it, as in Markdown, instead of showing as a
+  paragraph of its own.
 
 ### v0.6.1
 
