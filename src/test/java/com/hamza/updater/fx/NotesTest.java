@@ -45,6 +45,20 @@ class NotesTest {
     }
 
     @Test
+    void aLineRightUnderAListItemContinuesIt() {
+        assertEquals(List.of("BULLET:Closing a statement: rows before the date are locked, and it can be opened again.",
+                        "NUMBERED:Update the server first, then the clients.", "PARAGRAPH:After a blank line, a paragraph."),
+                kinds("""
+                        - **Closing a statement:** rows before the date are locked,
+                          and it can be opened again.
+                        1. Update the server first,
+                        then the clients.
+
+                        After a blank line, a paragraph.
+                        """));
+    }
+
+    @Test
     void theMarksOfMarkdownAreNotShown() {
         List<Notes.Span> spans = Notes.spans("Now **fast** and *safe*, see `release.ps1` or __this__ and _that_.");
         assertEquals("Now fast and safe, see release.ps1 or this and that.",

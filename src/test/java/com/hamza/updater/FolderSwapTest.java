@@ -58,6 +58,14 @@ class FolderSwapTest {
 
     /** Unpacks the release and runs the script to its end, as if the program had just closed. */
     private String swap(Path zip) throws Exception {
+        return swap(zip, dir);
+    }
+
+    /**
+     * The same, with the script started in {@code workingFolder}: a program the person opened from its
+     * folder or a shortcut works in its own folder, and the script it starts inherits that.
+     */
+    private String swap(Path zip, Path workingFolder) throws Exception {
         Process closed = new ProcessBuilder("cmd", "/c", "exit").start();
         assertTrue(closed.waitFor(10, TimeUnit.SECONDS));
         ZipFolder.Swap swap = ZipFolder.unpack(zip, program);
@@ -65,7 +73,8 @@ class FolderSwapTest {
         Path log = updates.resolve("update.log");
         Path script = updates.resolve("apply-update.ps1");
         InstallerLaunch.write(script, InstallerLaunch.folderScript(List.of(closed.pid()), swap, program, log));
-        Process run = new ProcessBuilder(InstallerLaunch.command(script)).redirectErrorStream(true).start();
+        Process run = new ProcessBuilder(InstallerLaunch.command(script)).directory(workingFolder.toFile())
+                .redirectErrorStream(true).start();
         String output = new String(run.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertTrue(run.waitFor(90, TimeUnit.SECONDS), output);
         return Files.exists(log) ? Files.readString(log) : output;
@@ -103,6 +112,18 @@ class FolderSwapTest {
         assertEquals(List.of("My App", "updates"), folders(), log);
         assertFalse(Files.exists(dir.resolve("My App.update")));
         assertFalse(Files.exists(dir.resolve("My App.previous")));
+    }
+
+    @Test
+    void aScriptStartedInTheProgramsOwnFolderStillReplacesIt() throws Exception {
+        install("old");
+        // Windows does not rename a folder a running process works in, the script included.
+        String log = swap(release("new", 0), folder);
+
+        assertTrue(log.contains("The update is installed."), log);
+        assertEquals("new", Files.readString(folder.resolve("app").resolve("held.txt")));
+        assertEquals(List.of("new"), opened(1), log);
+        assertEquals(List.of("My App", "updates"), folders(), log);
     }
 
     @Test

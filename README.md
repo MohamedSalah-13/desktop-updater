@@ -38,6 +38,17 @@ instead of each project carrying its own update code.
 
 ## What's New
 
+### v0.6.2
+
+- **Fixed: a zip update failed when the program was opened from its own folder** - by double-clicking it or
+  from a shortcut, as customers do. The update script inherited the program's working folder, and Windows
+  does not rename a folder a running process works in, so every attempt ended in «Could not move … being used
+  by another process» and the old version opened again. The script now moves to its own folder first, and
+  opens the program in the program's folder. Copies on an older version write the old script: they need one
+  update by hand, or a start from another working folder.
+- «What's new»: a line right under a list item continues it, as in Markdown, instead of showing as a
+  paragraph of its own.
+
 ### v0.6.1
 
 - `Announcement.update()` opens the window once the button's action is over, instead of waiting inside it.
@@ -114,7 +125,7 @@ permission, open an issue in this repository.
 <dependency>
     <groupId>com.github.MohamedSalah-13</groupId>
     <artifactId>desktop-updater</artifactId>
-    <version>v0.6.1</version>
+    <version>v0.6.2</version>
 </dependency>
 ```
 
